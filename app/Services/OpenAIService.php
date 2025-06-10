@@ -158,10 +158,12 @@ class OpenAIService
                 $chunkResult = $this->parseOpenAIResponse($result, $chunk);
 
                 if (isset($chunkResult['detailed_scores'])) {
-                    $allDetailedScores = array_merge($allDetailedScores, $chunkResult['detailed_scores']);
+                    $chunkScores = $chunkResult['detailed_scores'];
+                    $allDetailedScores = array_merge($allDetailedScores, $chunkScores);
+                    LoggingService::log('Successfully processed chunk '.($chunkIndex + 1).' ('.count($chunk).' reviews) with '.count($chunkScores).' scores');
+                } else {
+                    LoggingService::log('Chunk '.($chunkIndex + 1).' returned no scores');
                 }
-
-                LoggingService::log('Successfully processed chunk '.($chunkIndex + 1).' ('.count($chunk).' reviews)');
             } else {
                 LoggingService::log('Error processing chunk '.($chunkIndex + 1).': HTTP '.$response->status());
                 // Continue with other chunks even if one fails
@@ -249,11 +251,12 @@ class OpenAIService
      */
     private function getOptimizedMaxTokens(int $reviewCount): int
     {
-        // Calculate based on expected output size: roughly 20 chars per review for JSON response
-        $baseTokens = $reviewCount * 8; // More conservative estimate
+        // GPT-4o-mini needs more tokens than GPT-4-turbo for the same output
+        // Calculate based on expected output size: roughly 25-30 chars per review for JSON response
+        $baseTokens = $reviewCount * 12; // Increased from 8 to 12 for GPT-4o-mini
         
-        // Add buffer but keep it minimal for speed
-        $buffer = min(500, $reviewCount * 2);
+        // Add larger buffer for GPT-4o-mini to prevent truncation
+        $buffer = min(1000, $reviewCount * 5); // Increased buffer
         
         return $baseTokens + $buffer;
     }
@@ -268,7 +271,12 @@ class OpenAIService
     {
         $content = $response['choices'][0]['message']['content'] ?? '';
 
-        LoggingService::log('Raw OpenAI response content: '.json_encode(['content' => $content]));
+        LoggingService::log('Raw OpenAI response content: '.json_encode(['content' => substr($content, 0, 200).'...']));
+
+        // Clean the content to handle markdown formatting
+        $content = preg_replace('/^```json\s*/', '', $content);
+        $content = preg_replace('/\s*```$/', '', $content);
+        $content = trim($content);
 
         // Try to extract JSON from the content
         if (preg_match('/\[[\s\S]*\]/', $content, $matches)) {
@@ -278,6 +286,7 @@ class OpenAIService
                 LoggingService::log('Extracted JSON string: '.json_encode(['json' => substr($jsonString, 0, 100).'...']));
 
                 try {
+                    // Try to parse the complete JSON first
                     $results = json_decode($jsonString, true);
 
                     if (json_last_error() === JSON_ERROR_NONE && is_array($results)) {
@@ -288,13 +297,18 @@ class OpenAIService
                             }
                         }
 
+                        LoggingService::log('Successfully parsed complete JSON with '.count($detailedScores).' scores');
                         return [
                             'detailed_scores' => $detailedScores,
                         ];
                     }
                 } catch (\Exception $e) {
-                    LoggingService::log('Failed to parse OpenAI JSON response: '.$e->getMessage());
+                    LoggingService::log('Failed to parse complete JSON: '.$e->getMessage());
                 }
+
+                // If complete JSON parsing fails, try to parse partial JSON
+                LoggingService::log('Attempting to parse partial JSON response');
+                return $this->parsePartialJsonResponse($jsonString, $reviews);
             }
         }
 
@@ -304,6 +318,51 @@ class OpenAIService
         return [
             'detailed_scores' => [],
         ];
+    }
+
+    /**
+     * Parse partial JSON responses that may be truncated due to max_tokens limit
+     */
+    private function parsePartialJsonResponse(string $jsonString, array $reviews): array
+    {
+        $detailedScores = [];
+        
+        // Fix common truncation issues
+        $jsonString = rtrim($jsonString, ',');
+        
+        // If the JSON doesn't end with ], try to close it
+        if (!str_ends_with(trim($jsonString), ']')) {
+            $jsonString = rtrim($jsonString, ',') . ']';
+        }
+
+        // Try parsing the fixed JSON
+        try {
+            $results = json_decode($jsonString, true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && is_array($results)) {
+                foreach ($results as $result) {
+                    if (isset($result['id']) && isset($result['score'])) {
+                        $detailedScores[$result['id']] = (int) $result['score'];
+                    }
+                }
+                
+                LoggingService::log('Successfully parsed partial JSON with '.count($detailedScores).' scores');
+                return ['detailed_scores' => $detailedScores];
+            }
+        } catch (\Exception $e) {
+            LoggingService::log('Failed to parse partial JSON: '.$e->getMessage());
+        }
+
+        // If still failing, try regex parsing individual entries
+        preg_match_all('/\{"id":"([^"]+)","score":(\d+)\}/', $jsonString, $matches, PREG_SET_ORDER);
+        
+        foreach ($matches as $match) {
+            $detailedScores[$match[1]] = (int) $match[2];
+        }
+
+        LoggingService::log('Regex parsing extracted '.count($detailedScores).' scores from partial response');
+        
+        return ['detailed_scores' => $detailedScores];
     }
 
     private function getMaxTokensForModel(string $model): int
