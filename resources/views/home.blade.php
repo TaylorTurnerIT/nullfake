@@ -99,7 +99,7 @@
   </header>
 
   <main class="max-w-3xl mx-auto mt-10 p-6 bg-white rounded shadow">
-  <div class="pb-4 text-sm">AI-powered review analyzer. Easily detect fake, AI-generated or suspicious reviews and get a trust score for any product.</div>
+  <div class="pb-4 text-sm">AI-powered review analyzer. Easily detect fake, AI-generated or suspicious reviews and get a trust score for any product. Currently only US products are supported.</div>
 
     {{-- Livewire Review Analyzer replaces the form --}}
     <livewire:review-analyzer />
