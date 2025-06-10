@@ -183,6 +183,7 @@ class AmazonFetchService
         $url = "https://www.amazon.com/dp/{$asin}";
 
         try {
+            // First try HEAD request for speed
             $response = $this->httpClient->request('HEAD', $url, [
                 'timeout' => 3, // Very short timeout for validation
                 'connect_timeout' => 1,
@@ -190,6 +191,22 @@ class AmazonFetchService
             ]);
 
             $statusCode = $response->getStatusCode();
+
+            // If HEAD request returns 405 (Method Not Allowed), try GET request
+            if ($statusCode === 405) {
+                LoggingService::log('HEAD request returned 405, trying GET request', [
+                    'asin' => $asin,
+                    'url'  => $url,
+                ]);
+
+                $response = $this->httpClient->request('GET', $url, [
+                    'timeout' => 5, // Slightly longer timeout for GET
+                    'connect_timeout' => 2,
+                    'allow_redirects' => false,
+                ]);
+
+                $statusCode = $response->getStatusCode();
+            }
 
             LoggingService::log('ASIN validation check', [
                 'asin'        => $asin,
