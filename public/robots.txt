@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Allow all search engines to crawl everything
+# No restrictions or disallowed paths
+
+# Sitemap location
+Sitemap: https://nullfake.com/sitemap.xml
