@@ -2,7 +2,7 @@
 
 A Laravel application that analyzes Amazon product reviews to detect fake reviews using AI. The service fetches reviews via the Unwrangle API, analyzes them with OpenAI, and provides authenticity scores.
 
-Visit [nullfake.com](https://nullfake.com) to try it out.
+# Visit [nullfake.com](https://nullfake.com) to try it out.
 
 ## How It Works
 
