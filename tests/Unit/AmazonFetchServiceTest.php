@@ -168,12 +168,12 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_validate_asin_exists_success()
     {
-        // Mock Amazon validation (product exists)
+        // Mock successful response
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
 
         // Use reflection to call private method
         $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExists');
+        $method = $reflection->getMethod('validateAsinExistsFast');
         $method->setAccessible(true);
 
         $result = $method->invoke($this->service, 'B08N5WRWNW');
@@ -183,12 +183,12 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_validate_asin_exists_not_found()
     {
-        // Mock Amazon validation (product doesn't exist)
+        // Mock 404 response
         $this->mockHandler->append(new Response(404, [], 'Not found'));
 
         // Use reflection to call private method
         $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExists');
+        $method = $reflection->getMethod('validateAsinExistsFast');
         $method->setAccessible(true);
 
         $result = $method->invoke($this->service, 'INVALID123');
@@ -198,30 +198,30 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_validate_asin_exists_redirect()
     {
-        // Mock Amazon validation with redirect (geo-redirect)
+        // Mock redirect response (should still be considered valid)
         $this->mockHandler->append(new Response(302, ['Location' => 'https://amazon.co.uk/dp/B08N5WRWNW'], ''));
 
         // Use reflection to call private method
         $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExists');
+        $method = $reflection->getMethod('validateAsinExistsFast');
         $method->setAccessible(true);
 
         $result = $method->invoke($this->service, 'B08N5WRWNW');
 
-        $this->assertFalse($result); // Should return false for redirects
+        $this->assertTrue($result);
     }
 
     public function test_validate_asin_exists_exception()
     {
-        // Mock Amazon validation exception
-        $this->mockHandler->append(new RequestException(
+        // Mock exception
+        $this->mockHandler->append(new \GuzzleHttp\Exception\RequestException(
             'Connection timeout',
-            new Request('GET', 'test')
+            new \GuzzleHttp\Psr7\Request('GET', 'test')
         ));
 
         // Use reflection to call private method
         $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExists');
+        $method = $reflection->getMethod('validateAsinExistsFast');
         $method->setAccessible(true);
 
         $result = $method->invoke($this->service, 'B08N5WRWNW');

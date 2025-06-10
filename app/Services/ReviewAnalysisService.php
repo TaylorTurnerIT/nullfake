@@ -314,29 +314,19 @@ class ReviewAnalysisService
                 'This product has very high fake review activity. We recommend avoiding this product.'))));
     }
 
-    private function calculateAdjustedRating($genuineReviews)
+    /**
+     * Calculate adjusted rating based on genuine reviews only.
+     */
+    private function calculateAdjustedRating(array $genuineReviews): float
     {
-        LoggingService::log('calculateAdjustedRating called with '.count($genuineReviews).' genuine reviews');
-
         if (empty($genuineReviews)) {
-            LoggingService::log('No genuine reviews found, returning 0');
-
             return 0;
         }
 
-        $totalRating = 0;
-        foreach ($genuineReviews as $review) {
-            $totalRating += $review['rating'];
-            LoggingService::log('Adding rating: '.$review['rating'].', total so far: '.$totalRating);
-        }
-
+        $totalRating = array_sum(array_column($genuineReviews, 'rating'));
         $adjustedRating = $totalRating / count($genuineReviews);
-        $roundedRating = round($adjustedRating, 2);
 
-        LoggingService::log('Final calculation: '.$totalRating.' / '.count($genuineReviews).' = '.$adjustedRating);
-        LoggingService::log('Rounded result: '.$roundedRating);
-
-        return $roundedRating;
+        return round($adjustedRating, 2);
     }
 
     /**
@@ -425,16 +415,13 @@ class ReviewAnalysisService
         $totalReviews = count($reviews);
         $fakeCount = 0;
         $amazonRatingSum = 0;
-        $genuineRatingSum = 0;
-        $genuineCount = 0;
+        $genuineReviews = [];
 
         LoggingService::log('=== STARTING CALCULATION DEBUG ===');
         LoggingService::log("Total reviews found: {$totalReviews}");
         LoggingService::log('Detailed scores count: '.count($detailedScores));
 
-        $fakeReviews = [];
-        $genuineReviews = [];
-
+        // Optimized single-pass calculation
         foreach ($reviews as $review) {
             $reviewId = $review['id'];
             $rating = $review['rating'];
@@ -444,15 +431,10 @@ class ReviewAnalysisService
 
             if ($fakeScore >= 70) {
                 $fakeCount++;
-                $fakeReviews[] = [
-                    'id'         => $reviewId,
-                    'rating'     => $rating,
-                    'fake_score' => $fakeScore,
-                ];
-                LoggingService::log("FAKE REVIEW: ID={$reviewId}, Rating={$rating}, Score={$fakeScore}");
+                if ($fakeCount <= 8) { // Only log first 8 fake reviews to reduce log spam
+                    LoggingService::log("FAKE REVIEW: ID={$reviewId}, Rating={$rating}, Score={$fakeScore}");
+                }
             } else {
-                $genuineRatingSum += $rating;
-                $genuineCount++;
                 $genuineReviews[] = [
                     'id'         => $reviewId,
                     'rating'     => $rating,
@@ -463,17 +445,14 @@ class ReviewAnalysisService
 
         LoggingService::log('=== FAKE REVIEWS SUMMARY ===');
         LoggingService::log("Total fake reviews: {$fakeCount}");
-        foreach ($fakeReviews as $fake) {
-            LoggingService::log("Fake: {$fake['id']} - Rating: {$fake['rating']} - Score: {$fake['fake_score']}");
-        }
 
         LoggingService::log('=== GENUINE REVIEWS SUMMARY ===');
-        LoggingService::log("Total genuine reviews: {$genuineCount}");
-        $genuineRatingCounts = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
-        foreach ($genuineReviews as $genuine) {
-            $genuineRatingCounts[$genuine['rating']]++;
-        }
-        foreach ($genuineRatingCounts as $rating => $count) {
+        LoggingService::log("Total genuine reviews: ".count($genuineReviews));
+        
+        // Optimized rating count calculation
+        $genuineRatingCounts = array_count_values(array_column($genuineReviews, 'rating'));
+        for ($rating = 1; $rating <= 5; $rating++) {
+            $count = $genuineRatingCounts[$rating] ?? 0;
             LoggingService::log("Genuine {$rating}-star reviews: {$count}");
         }
 
@@ -484,7 +463,6 @@ class ReviewAnalysisService
         LoggingService::log('=== FINAL CALCULATIONS ===');
         LoggingService::log("Amazon rating sum: {$amazonRatingSum}");
         LoggingService::log("Amazon rating average: {$amazonRating}");
-        LoggingService::log("Genuine rating sum: {$genuineRatingSum}");
         LoggingService::log("Genuine rating average: {$adjustedRating}");
         LoggingService::log("Fake percentage: {$fakePercentage}%");
 
