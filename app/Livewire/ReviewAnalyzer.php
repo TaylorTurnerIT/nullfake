@@ -2,13 +2,10 @@
 
 namespace App\Livewire;
 
-use Livewire\Component;
-use App\Services\ReviewAnalysisService;
 use App\Services\CaptchaService;
-use Illuminate\Support\Facades\Log;
-use App\Services\Amazon\AmazonFetchService;
-use App\Services\OpenAIService;
 use App\Services\LoggingService;
+use App\Services\ReviewAnalysisService;
+use Livewire\Component;
 
 /**
  * Livewire component for Amazon product review analysis interface.
@@ -43,15 +40,15 @@ class ReviewAnalyzer extends Component
 
     // Progress tracking properties
     public $progressStep = 0;
-    public         $progressSteps = [
-            1 => 'Validating product URL...',
-            2 => 'Authenticating request...',
-            3 => 'Checking product database...',
-            4 => 'Gathering review information...',
-            5 => 'Analyzing reviews with AI...',
-            6 => 'Calculating final metrics...',
-            7 => 'Finalizing results...'
-        ];
+    public $progressSteps = [
+        1 => 'Validating product URL...',
+        2 => 'Authenticating request...',
+        3 => 'Checking product database...',
+        4 => 'Gathering review information...',
+        5 => 'Analyzing reviews with AI...',
+        6 => 'Calculating final metrics...',
+        7 => 'Finalizing results...',
+    ];
     public $progressPercentage = 0;
     public $totalReviewsFound = 0;
     public $currentlyProcessing = '';
@@ -70,7 +67,7 @@ class ReviewAnalyzer extends Component
     public function mount()
     {
         $this->hcaptchaKey = uniqid();
-        
+
         // Initialize progress variables to ensure they're available in the template
         $this->progressStep = 0;
         $this->progressPercentage = 0;
@@ -82,7 +79,7 @@ class ReviewAnalyzer extends Component
     public function analyze()
     {
         LoggingService::log('=== LIVEWIRE ANALYZE METHOD STARTED ===');
-        
+
         try {
             // Loading state and progress are already initialized by initializeProgress()
             // Just clear previous results
@@ -100,7 +97,7 @@ class ReviewAnalyzer extends Component
             $this->asinReview = null;
             $this->adjusted_rating = 0.00;
             $this->isAnalyzed = false;
-            
+
             // Validate input
             $this->validate([
                 'productUrl' => 'required|url',
@@ -111,7 +108,7 @@ class ReviewAnalyzer extends Component
                 $captchaService = app(CaptchaService::class);
                 $provider = $captchaService->getProvider();
                 $clientIp = request()->ip();
-                
+
                 if ($provider === 'recaptcha' && !empty($this->g_recaptcha_response)) {
                     if (!$captchaService->verify($this->g_recaptcha_response, $clientIp)) {
                         throw new \Exception('Captcha verification failed. Please try again.');
@@ -127,34 +124,33 @@ class ReviewAnalyzer extends Component
 
             $analysisService = app(ReviewAnalysisService::class);
             $productInfo = $analysisService->checkProductExists($this->productUrl);
-            
+
             $asinData = $productInfo['asin_data'];
-            
+
             // Gather reviews if needed
             if ($productInfo['needs_fetching']) {
                 $asinData = $analysisService->fetchReviews(
-                    $productInfo['asin'], 
-                    $productInfo['country'], 
+                    $productInfo['asin'],
+                    $productInfo['country'],
                     $productInfo['product_url']
                 );
             }
-            
+
             // Analyze with OpenAI if needed
             if ($productInfo['needs_openai']) {
                 $asinData = $analysisService->analyzeWithOpenAI($asinData);
             }
-            
+
             // Calculate final metrics and set results
             $analysisResult = $analysisService->calculateFinalMetrics($asinData);
             $this->setResults($analysisResult);
-            
+
             // Set final state
             $this->isAnalyzed = true;
 
             LoggingService::log('=== LIVEWIRE ANALYZE METHOD COMPLETED SUCCESSFULLY ===');
-            
         } catch (\Exception $e) {
-            LoggingService::log('Exception in analyze method: ' . $e->getMessage());
+            LoggingService::log('Exception in analyze method: '.$e->getMessage());
             $this->error = LoggingService::handleException($e);
             $this->resetAnalysisState();
         }
@@ -172,52 +168,46 @@ class ReviewAnalyzer extends Component
         $this->isAnalyzed = false;
     }
 
-
-
     private function setResults($analysisResult)
     {
-        LoggingService::log('Setting results with data: ' . json_encode($analysisResult));
-        
+        LoggingService::log('Setting results with data: '.json_encode($analysisResult));
+
         $this->result = $analysisResult;
         $this->fake_percentage = $analysisResult['fake_percentage'] ?? 0;
         $this->amazon_rating = $analysisResult['amazon_rating'] ?? 0;
         $this->adjusted_rating = (float) $analysisResult['adjusted_rating'];
         $this->grade = $analysisResult['grade'] ?? 'N/A';
         $this->explanation = $analysisResult['explanation'] ?? null;
-        
-        LoggingService::log('Results set - amazon_rating: ' . $this->amazon_rating . ', fake_percentage: ' . $this->fake_percentage . ', adjusted_rating: ' . $this->adjusted_rating);
-        LoggingService::log('Adjusted rating type: ' . gettype($this->adjusted_rating) . ', value: ' . var_export($this->adjusted_rating, true));
+
+        LoggingService::log('Results set - amazon_rating: '.$this->amazon_rating.', fake_percentage: '.$this->fake_percentage.', adjusted_rating: '.$this->adjusted_rating);
+        LoggingService::log('Adjusted rating type: '.gettype($this->adjusted_rating).', value: '.var_export($this->adjusted_rating, true));
     }
-
-
 
     public function render()
     {
         return view('livewire.review-analyzer');
     }
 
-
-
     public function getGradeColor()
     {
-        return match($this->grade) {
-            'A' => 'text-green-600',
-            'B' => 'text-yellow-600', 
-            'C' => 'text-orange-600',
-            'D' => 'text-red-600',
-            'F' => 'text-red-800',
+        return match ($this->grade) {
+            'A'     => 'text-green-600',
+            'B'     => 'text-yellow-600',
+            'C'     => 'text-orange-600',
+            'D'     => 'text-red-600',
+            'F'     => 'text-red-800',
             default => 'text-gray-600'
         };
     }
 
     public function getGradeBgColor()
     {
-        return match($this->grade) {
-            'A' => 'bg-green-100',
-            'B' => 'bg-yellow-100',
-            'C' => 'bg-orange-100', 
-            'D' => 'bg-red-100',
-            'F' => 'bg-red-200',
+        return match ($this->grade) {
+            'A'     => 'bg-green-100',
+            'B'     => 'bg-yellow-100',
+            'C'     => 'bg-orange-100',
+            'D'     => 'bg-red-100',
+            'F'     => 'bg-red-200',
             default => 'bg-gray-100'
         };
     }
@@ -240,14 +230,14 @@ class ReviewAnalyzer extends Component
         $this->asinReview = null;
         $this->adjusted_rating = 0.00;
         $this->isAnalyzed = false;
-        
+
         // Also reset progress state for clean start
         $this->loading = false;
         $this->progressStep = 0;
         $this->progressPercentage = 0;
         $this->currentlyProcessing = '';
         $this->progress = 0;
-        
+
         // Force Livewire to re-render immediately
         $this->dispatch('resultsCleared');
     }
@@ -263,7 +253,7 @@ class ReviewAnalyzer extends Component
         $this->currentlyProcessing = 'Starting analysis...';
         $this->progress = 0;
         $this->isAnalyzed = false;
-        
+
         LoggingService::log('=== INITIALIZE PROGRESS CALLED ===');
         LoggingService::log('Progress initialized - loading: true, step: 0');
     }
@@ -271,13 +261,11 @@ class ReviewAnalyzer extends Component
     public function startAnalysis()
     {
         LoggingService::log('=== START ANALYSIS CALLED ===');
-        
-        // Clear previous results 
+
+        // Clear previous results
         $this->clearPreviousResults();
-        
+
         // Run the analysis (JavaScript will handle progress simulation)
         $this->analyze();
     }
-
-
-} 
+}
