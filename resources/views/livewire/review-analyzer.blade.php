@@ -14,38 +14,40 @@
         @if(!app()->environment('local'))
             <div id="captcha-container">
                 @if($captcha->getProvider() === 'recaptcha')
-                    <div id="recaptcha-container" class="g-recaptcha" data-sitekey="{{ $captcha->getSiteKey() }}" data-callback="onRecaptchaSuccess"></div>
-                    <input type="hidden" wire:model="g_recaptcha_response">
-                    @error('g_recaptcha_response')
-                        <div class="text-red-500 text-sm mt-1">{{ $message }}</div>
-                    @enderror
-                    <script>
-                        let recaptchaWidgetId = null;
-                        function onRecaptchaSuccess(token) {
-                            @this.set('g_recaptcha_response', token);
-                        }
+                    @if(!$captcha_passed)
+                        <div id="recaptcha-container" class="g-recaptcha" data-sitekey="{{ $captcha->getSiteKey() }}" data-callback="onRecaptchaSuccess"></div>
+                        <input type="hidden" wire:model="g_recaptcha_response">
+                        @error('g_recaptcha_response')
+                            <div class="text-red-500 text-sm mt-1">{{ $message }}</div>
+                        @enderror
+                        <script>
+                            let recaptchaWidgetId = null;
+                            function onRecaptchaSuccess(token) {
+                                @this.set('g_recaptcha_response', token);
+                            }
 
-                        function renderRecaptcha() {
-                            if (typeof grecaptcha !== 'undefined') {
-                                if (recaptchaWidgetId !== null) {
-                                    grecaptcha.reset(recaptchaWidgetId);
-                                } else {
-                                    recaptchaWidgetId = grecaptcha.render('recaptcha-container', {
-                                        'sitekey': '{{ $captcha->getSiteKey() }}',
-                                        'callback': onRecaptchaSuccess
-                                    });
+                            function renderRecaptcha() {
+                                if (typeof grecaptcha !== 'undefined') {
+                                    if (recaptchaWidgetId !== null) {
+                                        grecaptcha.reset(recaptchaWidgetId);
+                                    } else {
+                                        recaptchaWidgetId = grecaptcha.render('recaptcha-container', {
+                                            'sitekey': '{{ $captcha->getSiteKey() }}',
+                                            'callback': onRecaptchaSuccess
+                                        });
+                                    }
                                 }
                             }
-                        }
 
-                        document.addEventListener("livewire:load", function () {
-                            renderRecaptcha();
-                            Livewire.hook('message.processed', (message, component) => {
+                            document.addEventListener("livewire:load", function () {
                                 renderRecaptcha();
+                                Livewire.hook('message.processed', (message, component) => {
+                                    renderRecaptcha();
+                                });
                             });
-                        });
-                    </script>
-                    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+                        </script>
+                        <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+                    @endif
                 @elseif($captcha->getProvider() === 'hcaptcha')
                     @if(!$captcha_passed)
                         <div

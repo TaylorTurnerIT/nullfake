@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Services\CaptchaService;
 use App\Services\LoggingService;
 use App\Services\ReviewAnalysisService;
+use Illuminate\Http\Request;
 use Livewire\Component;
 
 /**
@@ -105,20 +106,26 @@ class ReviewAnalyzer extends Component
 
             // Captcha validation (if not local)
             if (!app()->environment('local')) {
-                $captchaService = app(CaptchaService::class);
-                $provider = $captchaService->getProvider();
-                $clientIp = request()->ip();
+                // Skip captcha validation if already passed in this session
+                if (!$this->captcha_passed) {
+                    $captchaService = app(CaptchaService::class);
+                    $provider = $captchaService->getProvider();
 
-                if ($provider === 'recaptcha' && !empty($this->g_recaptcha_response)) {
-                    if (!$captchaService->verify($this->g_recaptcha_response, $clientIp)) {
+                    if ($provider === 'recaptcha' && !empty($this->g_recaptcha_response)) {
+                        if (!$captchaService->verify($this->g_recaptcha_response)) {
+                            throw new \Exception('Captcha verification failed. Please try again.');
+                        }
+                        // Mark captcha as passed for this session
+                        $this->captcha_passed = true;
+                    } elseif ($provider === 'hcaptcha' && !empty($this->h_captcha_response)) {
+                        if (!$captchaService->verify($this->h_captcha_response)) {
+                            throw new \Exception('Captcha verification failed. Please try again.');
+                        }
+                        // Mark captcha as passed for this session
+                        $this->captcha_passed = true;
+                    } else {
                         throw new \Exception('Captcha verification failed. Please try again.');
                     }
-                } elseif ($provider === 'hcaptcha' && !empty($this->h_captcha_response)) {
-                    if (!$captchaService->verify($this->h_captcha_response, $clientIp)) {
-                        throw new \Exception('Captcha verification failed. Please try again.');
-                    }
-                } else {
-                    throw new \Exception('Captcha verification failed. Please try again.');
                 }
             }
 
