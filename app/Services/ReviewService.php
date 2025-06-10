@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\AsinData;
 
 /**
- * Review Service for Amazon product URL processing
+ * Review Service for Amazon product URL processing.
  *
  * This service handles the extraction of ASINs from Amazon URLs,
  * country detection, and database lookups for existing analyses.
@@ -16,8 +16,10 @@ class ReviewService
      * Extract the 10-character ASIN from the Amazon product URL.
      *
      * @param string $url The Amazon product URL
-     * @return string The extracted ASIN
+     *
      * @throws \InvalidArgumentException If ASIN cannot be extracted
+     *
+     * @return string The extracted ASIN
      */
     public function extractAsin(string $url): string
     {
@@ -27,6 +29,7 @@ class ReviewService
         if (preg_match('/\/product\/([A-Z0-9]{10})/', $url, $matches)) {
             return $matches[1];
         }
+
         throw new \InvalidArgumentException('Invalid Amazon product URL');
     }
 
@@ -34,12 +37,13 @@ class ReviewService
      * Extract country code from Amazon URL based on domain.
      *
      * @param string $url The Amazon product URL
+     *
      * @return string Two-letter country code (defaults to 'us')
      */
     public function extractCountryFromUrl(string $url): string
     {
         $host = parse_url($url, PHP_URL_HOST);
-        
+
         $countryMap = [
             'amazon.com'      => 'us',
             'amazon.co.uk'    => 'gb',
@@ -76,8 +80,9 @@ class ReviewService
     /**
      * Find existing analysis in database by ASIN and country.
      *
-     * @param string $asin The Amazon Standard Identification Number
+     * @param string $asin    The Amazon Standard Identification Number
      * @param string $country Two-letter country code
+     *
      * @return AsinData|null The existing analysis or null if not found
      */
     public function findExistingAnalysis(string $asin, string $country): ?AsinData

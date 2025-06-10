@@ -2,14 +2,14 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use Livewire\Livewire;
 use App\Livewire\ReviewAnalyzer;
-use App\Services\ReviewAnalysisService;
-use App\Services\CaptchaService;
 use App\Models\AsinData;
+use App\Services\CaptchaService;
+use App\Services\ReviewAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\App;
+use Livewire\Livewire;
+use Tests\TestCase;
 
 class ReviewAnalyzerLivewireTest extends TestCase
 {
@@ -18,13 +18,13 @@ class ReviewAnalyzerLivewireTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Set up test environment
         config([
-            'captcha.provider' => 'recaptcha',
-            'captcha.recaptcha.site_key' => 'test_site_key',
+            'captcha.provider'             => 'recaptcha',
+            'captcha.recaptcha.site_key'   => 'test_site_key',
             'captcha.recaptcha.secret_key' => 'test_secret_key',
-            'captcha.recaptcha.verify_url' => 'https://www.google.com/recaptcha/api/siteverify'
+            'captcha.recaptcha.verify_url' => 'https://www.google.com/recaptcha/api/siteverify',
         ]);
     }
 
@@ -173,19 +173,19 @@ class ReviewAnalyzerLivewireTest extends TestCase
     {
         // Create existing analysis data
         $asinData = AsinData::create([
-            'asin' => 'B08N5WRWNW',
-            'country' => 'us',
+            'asin'        => 'B08N5WRWNW',
+            'country'     => 'us',
             'product_url' => 'https://www.amazon.com/dp/B08N5WRWNW',
-            'reviews' => json_encode([
-                ['id' => 0, 'rating' => 5, 'review_title' => 'Great!', 'review_text' => 'Great product', 'author' => 'John']
+            'reviews'     => json_encode([
+                ['id' => 0, 'rating' => 5, 'review_title' => 'Great!', 'review_text' => 'Great product', 'author' => 'John'],
             ]),
-            'openai_result' => json_encode(['detailed_scores' => [0 => 25]]),
+            'openai_result'   => json_encode(['detailed_scores' => [0 => 25]]),
             'fake_percentage' => 0.0,
-            'amazon_rating' => 5.0,
+            'amazon_rating'   => 5.0,
             'adjusted_rating' => 5.0,
-            'grade' => 'A',
-            'explanation' => 'Test explanation',
-            'status' => 'completed'
+            'grade'           => 'A',
+            'explanation'     => 'Test explanation',
+            'status'          => 'completed',
         ]);
 
         // Mock CaptchaService - success
@@ -199,23 +199,23 @@ class ReviewAnalyzerLivewireTest extends TestCase
         $mockAnalysisService = $this->createMock(ReviewAnalysisService::class);
         $mockAnalysisService->method('checkProductExists')
                            ->willReturn([
-                               'asin' => 'B08N5WRWNW',
-                               'country' => 'us',
-                               'product_url' => 'https://www.amazon.com/dp/B08N5WRWNW',
-                               'exists' => true,
-                               'asin_data' => $asinData,
+                               'asin'           => 'B08N5WRWNW',
+                               'country'        => 'us',
+                               'product_url'    => 'https://www.amazon.com/dp/B08N5WRWNW',
+                               'exists'         => true,
+                               'asin_data'      => $asinData,
                                'needs_fetching' => false,
-                               'needs_openai' => false
+                               'needs_openai'   => false,
                            ]);
 
         $mockAnalysisService->method('calculateFinalMetrics')
                            ->willReturn([
                                'fake_percentage' => 0.0,
-                               'amazon_rating' => 5.0,
+                               'amazon_rating'   => 5.0,
                                'adjusted_rating' => 5.0,
-                               'grade' => 'A',
-                               'explanation' => 'Test explanation',
-                               'asin_review' => $asinData
+                               'grade'           => 'A',
+                               'explanation'     => 'Test explanation',
+                               'asin_review'     => $asinData,
                            ]);
 
         App::instance(ReviewAnalysisService::class, $mockAnalysisService);
@@ -278,7 +278,7 @@ class ReviewAnalyzerLivewireTest extends TestCase
         $this->assertEquals('text-green-600', $gradeColor);
         $this->assertEquals('bg-green-100', $gradeBgColor);
 
-        // Test F grade  
+        // Test F grade
         $component->set('grade', 'F');
         $gradeColor = $component->instance()->getGradeColor();
         $gradeBgColor = $component->instance()->getGradeBgColor();
@@ -322,8 +322,8 @@ class ReviewAnalyzerLivewireTest extends TestCase
     {
         // Configure for hCaptcha
         config([
-            'captcha.provider' => 'hcaptcha',
-            'captcha.hcaptcha.site_key' => 'test_hcaptcha_key'
+            'captcha.provider'          => 'hcaptcha',
+            'captcha.hcaptcha.site_key' => 'test_hcaptcha_key',
         ]);
 
         // Mock CaptchaService for hCaptcha
@@ -370,4 +370,4 @@ class ReviewAnalyzerLivewireTest extends TestCase
                   ->assertSet('progressPercentage', 0)
                   ->assertSet('isAnalyzed', false);
     }
-} 
+}

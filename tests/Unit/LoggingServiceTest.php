@@ -2,16 +2,16 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
 use App\Services\LoggingService;
 use Illuminate\Support\Facades\Log;
+use Tests\TestCase;
 
 class LoggingServiceTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Clear any previous log expectations
         Log::spy();
     }
@@ -56,11 +56,11 @@ class LoggingServiceTest extends TestCase
     public function test_handle_exception_timeout_error()
     {
         $exception = new \Exception('cURL error 28: Operation timed out after 30 seconds');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('The request took too long to complete. Please try again.', $result);
-        
+
         Log::shouldHaveReceived('error')
            ->once()
            ->with('cURL error 28: Operation timed out after 30 seconds', \Mockery::type('array'));
@@ -69,84 +69,84 @@ class LoggingServiceTest extends TestCase
     public function test_handle_exception_product_not_found()
     {
         $exception = new \Exception('Product does not exist on Amazon.com (US) site');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('Product does not exist on Amazon.com (US) site. Please check the URL and try again.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_data_type_error()
     {
         $exception = new \Exception('count(): Argument #1 ($value) must be of type Countable|array');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('Data processing error occurred. Please try again.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_fetching_failed()
     {
         $exception = new \Exception('Failed to fetch reviews from Amazon');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('Unable to fetch reviews at this time. Please try again later.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_openai_error()
     {
         $exception = new \Exception('OpenAI API request failed with status 500');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('Analysis service is temporarily unavailable. Please try again later.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_invalid_url()
     {
         $exception = new \Exception('Could not extract ASIN from URL: invalid-url');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('Please provide a valid Amazon product URL.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_redirect_failed()
     {
         $exception = new \Exception('Failed to follow redirect: connection timeout');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('Unable to resolve the shortened URL. Please try using the full Amazon product URL instead.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_generic_error()
     {
         $exception = new \Exception('Some unknown error occurred');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('An unexpected error occurred. Please try again later.', $result);
-        
+
         Log::shouldHaveReceived('error')->once();
     }
 
     public function test_handle_exception_logs_trace()
     {
         $exception = new \Exception('Test exception');
-        
+
         LoggingService::handleException($exception);
 
         Log::shouldHaveReceived('error')
@@ -184,7 +184,7 @@ class LoggingServiceTest extends TestCase
     public function test_error_types_array_structure()
     {
         $errorTypes = LoggingService::ERROR_TYPES;
-        
+
         $this->assertIsArray($errorTypes);
         $this->assertArrayHasKey('TIMEOUT', $errorTypes);
         $this->assertArrayHasKey('PRODUCT_NOT_FOUND', $errorTypes);
@@ -193,7 +193,7 @@ class LoggingServiceTest extends TestCase
         $this->assertArrayHasKey('OPENAI_ERROR', $errorTypes);
         $this->assertArrayHasKey('INVALID_URL', $errorTypes);
         $this->assertArrayHasKey('REDIRECT_FAILED', $errorTypes);
-        
+
         // Check structure of each error type
         foreach ($errorTypes as $type) {
             $this->assertArrayHasKey('patterns', $type);
@@ -207,7 +207,7 @@ class LoggingServiceTest extends TestCase
     {
         // Test that the first matching pattern is used
         $exception = new \Exception('Operation timed out and cURL error 28 occurred');
-        
+
         $result = LoggingService::handleException($exception);
 
         $this->assertEquals('The request took too long to complete. Please try again.', $result);
@@ -217,10 +217,10 @@ class LoggingServiceTest extends TestCase
     {
         // Test that pattern matching is case sensitive
         $exception = new \Exception('CURL ERROR 28: timeout');
-        
+
         $result = LoggingService::handleException($exception);
 
         // Should not match the timeout pattern (case sensitive)
         $this->assertEquals('An unexpected error occurred. Please try again later.', $result);
     }
-} 
+}

@@ -15,36 +15,36 @@ class LoggingService
     const ERROR_TYPES = [
         'TIMEOUT' => [
             'patterns' => ['cURL error 28', 'Operation timed out'],
-            'message' => 'The request took too long to complete. Please try again.'
+            'message'  => 'The request took too long to complete. Please try again.',
         ],
         'PRODUCT_NOT_FOUND' => [
             'patterns' => ['Product does not exist on Amazon.com (US) site'],
-            'message' => 'Product does not exist on Amazon.com (US) site. Please check the URL and try again.'
+            'message'  => 'Product does not exist on Amazon.com (US) site. Please check the URL and try again.',
         ],
         'DATA_TYPE_ERROR' => [
             'patterns' => ['count(): Argument #1 ($value) must be of type Countable|array', 'TypeError'],
-            'message' => 'Data processing error occurred. Please try again.'
+            'message'  => 'Data processing error occurred. Please try again.',
         ],
         'FETCHING_FAILED' => [
             'patterns' => ['Failed to fetch reviews'],
-            'message' => 'Unable to fetch reviews at this time. Please try again later.'
+            'message'  => 'Unable to fetch reviews at this time. Please try again later.',
         ],
         'OPENAI_ERROR' => [
             'patterns' => ['OpenAI API request failed'],
-            'message' => 'Analysis service is temporarily unavailable. Please try again later.'
+            'message'  => 'Analysis service is temporarily unavailable. Please try again later.',
         ],
         'INVALID_URL' => [
             'patterns' => ['Invalid Amazon URL', 'ASIN not found', 'Could not extract ASIN from URL'],
-            'message' => 'Please provide a valid Amazon product URL.'
+            'message'  => 'Please provide a valid Amazon product URL.',
         ],
         'REDIRECT_FAILED' => [
             'patterns' => ['Failed to follow redirect', 'Redirect does not lead to Amazon domain'],
-            'message' => 'Unable to resolve the shortened URL. Please try using the full Amazon product URL instead.'
-        ]
+            'message'  => 'Unable to resolve the shortened URL. Please try using the full Amazon product URL instead.',
+        ],
     ];
 
     /**
-     * Log a message with context
+     * Log a message with context.
      */
     public static function log(string $message, array $context = [], string $level = self::INFO): void
     {
@@ -52,7 +52,7 @@ class LoggingService
     }
 
     /**
-     * Log an exception and return user-friendly message
+     * Log an exception and return user-friendly message.
      */
     public static function handleException(\Exception $e): string
     {
@@ -73,10 +73,10 @@ class LoggingService
     }
 
     /**
-     * Log progress updates
+     * Log progress updates.
      */
     public static function logProgress(string $step, string $message): void
     {
         self::log("Progress: {$step} - {$message}");
     }
-} 
+}

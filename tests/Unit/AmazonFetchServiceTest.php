@@ -2,17 +2,16 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
-use App\Services\Amazon\AmazonFetchService;
 use App\Models\AsinData;
+use App\Services\Amazon\AmazonFetchService;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Psr7\Response;
-use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Log;
+use Tests\TestCase;
 
 class AmazonFetchServiceTest extends TestCase
 {
@@ -24,19 +23,19 @@ class AmazonFetchServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Set up environment variables for testing
         config(['app.env' => 'testing']);
         putenv('UNWRANGLE_API_KEY=test_api_key');
         putenv('UNWRANGLE_AMAZON_COOKIE=test_cookie');
-        
+
         $this->mockHandler = new MockHandler();
         $handlerStack = HandlerStack::create($this->mockHandler);
         $mockClient = new Client(['handler' => $handlerStack]);
-        
+
         // Create service instance and inject mock client
         $this->service = new AmazonFetchService();
-        
+
         // Use reflection to inject the mock client
         $reflection = new \ReflectionClass($this->service);
         $property = $reflection->getProperty('httpClient');
@@ -48,16 +47,16 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API response
         $unwrangleResponse = [
-            'success' => true,
+            'success'       => true,
             'total_results' => 2,
-            'description' => 'Test Product Description',
-            'reviews' => [
+            'description'   => 'Test Product Description',
+            'reviews'       => [
                 ['rating' => 5, 'text' => 'Great product', 'author' => 'John'],
-                ['rating' => 4, 'text' => 'Good product', 'author' => 'Jane']
-            ]
+                ['rating' => 4, 'text' => 'Good product', 'author' => 'Jane'],
+            ],
         ];
         $this->mockHandler->append(new Response(200, [], json_encode($unwrangleResponse)));
 
@@ -86,17 +85,17 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API response
         $unwrangleResponse = [
-            'success' => true,
+            'success'       => true,
             'total_results' => 3,
-            'description' => 'Test Product',
-            'reviews' => [
+            'description'   => 'Test Product',
+            'reviews'       => [
                 ['rating' => 5, 'text' => 'Excellent'],
                 ['rating' => 4, 'text' => 'Good'],
-                ['rating' => 3, 'text' => 'Average']
-            ]
+                ['rating' => 3, 'text' => 'Average'],
+            ],
         ];
         $this->mockHandler->append(new Response(200, [], json_encode($unwrangleResponse)));
 
@@ -125,7 +124,7 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API error response
         $this->mockHandler->append(new Response(500, [], 'Internal Server Error'));
 
@@ -138,11 +137,11 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API response with error
         $unwrangleResponse = [
             'success' => false,
-            'error' => 'API limit exceeded'
+            'error'   => 'API limit exceeded',
         ];
         $this->mockHandler->append(new Response(200, [], json_encode($unwrangleResponse)));
 
@@ -155,7 +154,7 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API exception
         $this->mockHandler->append(new RequestException(
             'Connection timeout',
@@ -234,7 +233,7 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API empty response
         $this->mockHandler->append(new Response(200, [], ''));
 
@@ -247,7 +246,7 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API invalid JSON response
         $this->mockHandler->append(new Response(200, [], 'invalid json'));
 
@@ -260,13 +259,13 @@ class AmazonFetchServiceTest extends TestCase
     {
         // Mock Amazon validation (product exists)
         $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-        
+
         // Mock Unwrangle API response
         $unwrangleResponse = [
-            'success' => true,
+            'success'       => true,
             'total_results' => 1,
-            'description' => 'Test Product',
-            'reviews' => [['rating' => 5, 'text' => 'Great']]
+            'description'   => 'Test Product',
+            'reviews'       => [['rating' => 5, 'text' => 'Great']],
         ];
         $this->mockHandler->append(new Response(200, [], json_encode($unwrangleResponse)));
 
@@ -278,7 +277,7 @@ class AmazonFetchServiceTest extends TestCase
         $this->assertArrayHasKey('description', $result);
         $this->assertEquals('Test Product', $result['description']);
         $this->assertCount(1, $result['reviews']);
-        
+
         // Verify both mock responses were consumed
         $this->assertCount(0, $this->mockHandler);
     }
@@ -288,7 +287,7 @@ class AmazonFetchServiceTest extends TestCase
         // Clean up environment variables
         putenv('UNWRANGLE_API_KEY');
         putenv('UNWRANGLE_AMAZON_COOKIE');
-        
+
         parent::tearDown();
     }
-} 
+}
