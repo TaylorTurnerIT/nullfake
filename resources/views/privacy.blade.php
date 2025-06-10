@@ -31,7 +31,7 @@
     <div class="bg-white rounded-lg shadow-sm p-8">
       <h1 class="text-3xl font-bold text-gray-900 mb-6">Privacy Policy</h1>
       
-      <p class="text-gray-600 mb-6">Last updated: December 2024</p>
+      <p class="text-gray-600 mb-6">Last updated: June 2025</p>
 
       <div class="prose prose-gray max-w-none">
         
