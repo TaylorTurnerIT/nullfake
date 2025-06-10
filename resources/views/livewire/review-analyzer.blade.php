@@ -3,7 +3,7 @@
 <div>
     <form wire:submit.prevent="analyze" class="space-y-6" id="review-form">
         <div>
-            <label for="productUrl" class="block text-sm font-medium">Amazon Product URL</label>
+            <label for="productUrl" class="block text-sm font-medium">Amazon (US) Product URL</label>
             <input type="url" id="productUrl" wire:model.defer="productUrl" required
                    class="mt-1 w-full px-4 py-2 border rounded focus:outline-none focus:ring focus:border-indigo-300" />
             @error('productUrl')
