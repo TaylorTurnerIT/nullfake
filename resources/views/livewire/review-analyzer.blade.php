@@ -459,88 +459,44 @@ async function tryMultipleValidationMethods(asin) {
 
 
 async function expandShortUrl(shortUrl) {
-    console.log('Attempting to expand short URL:', shortUrl);
-    
-    // Try multiple methods to expand the URL
-    const methods = [
-        () => expandViaFetch(shortUrl),
-        () => expandViaProxy(shortUrl)
-    ];
-    
-    for (const method of methods) {
-        try {
-            const expandedUrl = await method();
-            if (expandedUrl && expandedUrl !== shortUrl) {
-                console.log('Successfully expanded URL:', expandedUrl);
-                return expandedUrl;
-            }
-        } catch (error) {
-            console.log('URL expansion method failed:', error.message);
-        }
-    }
-    
-    throw new Error('Could not expand short URL with any method');
-}
-
-async function expandViaFetch(shortUrl) {
-    // Try direct fetch with redirect following
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    console.log('Attempting to expand short URL via backend:', shortUrl);
     
     try {
-        const response = await fetch(shortUrl, {
-            method: 'HEAD',
-            mode: 'cors',
-            redirect: 'follow',
-            signal: controller.signal,
-            credentials: 'omit',
-            referrerPolicy: 'no-referrer'
-        });
-        
-        clearTimeout(timeoutId);
-        
-        // Check if we got redirected to an Amazon URL
-        if (response.url && response.url.includes('amazon.com')) {
-            return response.url;
+        // Get CSRF token from meta tag
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (!csrfToken) {
+            throw new Error('CSRF token not found');
         }
         
-        throw new Error('No Amazon redirect found');
+        const response = await fetch('/api/expand-url', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ url: shortUrl })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.expanded_url) {
+            console.log('Backend successfully expanded URL:', data.expanded_url);
+            return data.expanded_url;
+        } else {
+            throw new Error(data.error || 'Backend expansion failed');
+        }
     } catch (error) {
-        clearTimeout(timeoutId);
+        console.warn('Backend URL expansion failed:', error.message);
         throw error;
     }
 }
 
-async function expandViaProxy(shortUrl) {
-    // Use CORS proxy service as fallback
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-    
-    try {
-        const response = await fetch(proxyUrl, {
-            method: 'GET',
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-            const data = await response.json();
-            const finalUrl = data.status?.url || data.contents;
-            
-            if (finalUrl && finalUrl.includes('amazon.com')) {
-                return finalUrl;
-            }
-        }
-        
-        throw new Error('Proxy service did not return Amazon URL');
-    } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-    }
-}
+
 
 async function validateViaImageRequest(asin) {
     // Try to load an Amazon product image - if it loads, product likely exists

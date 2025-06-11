@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>Null Fake - Amazon Review Analysis</title>
   <meta name="description" content="Null Fake is an AI-powered tool that analyzes Amazon product reviews for authenticity. Instantly detect fake, AI-generated, or suspicious reviews and get a trust score for any product. Built for shoppers and sellers who want to make informed decisions." />
   <meta name="keywords" content="Amazon review analysis, fake review detector, AI review analysis, Amazon authenticity checker, product review trust, Amazon Canada, Amazon US, review analyzer, AI fake review, e-commerce trust, product authenticity, review scoring" />

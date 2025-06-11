@@ -17,3 +17,6 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+// URL expansion for Amazon short URLs
+Route::post('/expand-url', [App\Http\Controllers\UrlExpansionController::class, 'expandUrl']);

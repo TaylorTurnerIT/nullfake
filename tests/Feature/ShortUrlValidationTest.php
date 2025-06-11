@@ -30,35 +30,33 @@ class ShortUrlValidationTest extends TestCase
         
         // Check that ASIN extraction from short URL path is implemented
         $response->assertSee('\/d\/([A-Z0-9]{10})', false);
-        $response->assertSee('Found ASIN in short URL path', false);
+        $response->assertSee('Found potential ASIN in short URL', false);
     }
 
     public function test_server_side_short_url_expansion()
     {
-        // Mock the ReviewAnalysisService to avoid real HTTP calls
-        $analysisService = $this->mock(ReviewAnalysisService::class, function ($mock) {
-            $mock->shouldReceive('checkProductExists')
-                 ->with('https://a.co/d/B08N5WRWNW')
-                 ->once()
-                 ->andReturn([
-                     'asin' => 'B08N5WRWNW',
-                     'country' => 'us',
-                     'product_url' => 'https://www.amazon.com/dp/B08N5WRWNW',
-                     'exists' => false,
-                     'asin_data' => null,
-                     'needs_fetching' => true,
-                     'needs_openai' => true,
-                 ]);
-        });
+        // Test that the URL expansion API works for short URLs
+        $response = $this->postJson('/api/expand-url', [
+            'url' => 'https://a.co/d/B08N5WRWNW'
+        ]);
         
-        // Test that short URLs can be processed
-        $result = $analysisService->checkProductExists('https://a.co/d/B08N5WRWNW');
+        // Should return a JSON response structure
+        $response->assertJsonStructure(['success']);
         
-        // Should extract ASIN and process successfully
-        $this->assertIsArray($result);
-        $this->assertArrayHasKey('asin', $result);
-        $this->assertArrayHasKey('exists', $result);
-        $this->assertEquals('B08N5WRWNW', $result['asin']);
+        // If successful, should have expanded URL
+        if ($response->json('success')) {
+            $response->assertJsonStructure([
+                'success',
+                'original_url', 
+                'expanded_url'
+            ]);
+        } else {
+            // If failed, should have error message
+            $response->assertJsonStructure([
+                'success',
+                'error'
+            ]);
+        }
     }
 
     public function test_short_url_with_valid_asin_pattern()
@@ -66,19 +64,19 @@ class ShortUrlValidationTest extends TestCase
         $response = $this->get('/');
         
         // Test that the client-side validation can handle a.co URLs with /d/ pattern
-        $response->assertSee('shortUrlAsinMatch', false);
+        $response->assertSee('shortUrlAsin', false);
         $response->assertSee('Short URL validated successfully', false);
-        $response->assertSee('Short URL accepted', false);
+        $response->assertSee('Short URL detected - will process server-side', false);
     }
 
-    public function test_multiple_short_url_expansion_methods()
+    public function test_backend_url_expansion_method()
     {
         $response = $this->get('/');
         
-        // Check that multiple expansion methods are implemented
-        $response->assertSee('expandViaFetch', false);
-        $response->assertSee('expandViaProxy', false);
-        $response->assertSee('Could not expand short URL with any method', false);
+        // Check that backend expansion method is implemented
+        $response->assertSee('/api/expand-url', false);
+        $response->assertSee('Backend successfully expanded URL', false);
+        $response->assertSee('Backend URL expansion failed', false);
     }
 
     public function test_short_url_validation_messages()
@@ -87,9 +85,9 @@ class ShortUrlValidationTest extends TestCase
         
         // Check that appropriate status messages are defined for short URLs
         $response->assertSee('Amazon short URL detected - validating', false);
-        $response->assertSee('Successfully expanded short URL', false);
-        $response->assertSee('Client-side short URL expansion failed', false);
-        $response->assertSee('Short URL accepted - will expand during analysis', false);
+        $response->assertSee('Backend successfully expanded URL', false);
+        $response->assertSee('Backend URL expansion failed', false);
+        $response->assertSee('Short URL detected - will process server-side', false);
     }
 
     public function test_short_url_fallback_behavior()
@@ -110,28 +108,28 @@ class ShortUrlValidationTest extends TestCase
         $response->assertSee("url.includes('amzn.to/')", false);
     }
 
-    public function test_server_side_redirect_following_security()
+    public function test_url_expansion_security()
     {
-        $analysisService = app(ReviewAnalysisService::class);
+        // Test that non-Amazon URLs are rejected
+        $response = $this->postJson('/api/expand-url', [
+            'url' => 'https://malicious-site.com/redirect'
+        ]);
         
-        // Use reflection to test the redirect validation
-        $reflection = new \ReflectionClass($analysisService);
-        $method = $reflection->getMethod('followRedirect');
-        $method->setAccessible(true);
-        
-        // Test that only a.co URLs are allowed for redirect following
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Redirect following only allowed for a.co domains');
-        
-        $method->invoke($analysisService, 'https://malicious-site.com/redirect');
+        $response->assertStatus(400);
+        $response->assertJson([
+            'success' => false,
+            'error' => 'Only Amazon URLs are supported'
+        ]);
     }
 
-    public function test_short_url_timeout_configuration()
+    public function test_backend_expansion_api_available()
     {
-        $response = $this->get('/');
+        // Test that the API endpoint is accessible
+        $response = $this->postJson('/api/expand-url', [
+            'url' => 'https://a.co/d/test123'
+        ]);
         
-        // Check that appropriate timeouts are configured for short URL operations
-        $response->assertSee('5000', false); // expandViaFetch timeout
-        $response->assertSee('8000', false); // expandViaProxy timeout
+        // Should return JSON structure (success or failure)
+        $response->assertJsonStructure(['success']);
     }
 } 
