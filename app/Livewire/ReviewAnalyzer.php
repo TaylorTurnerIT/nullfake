@@ -80,6 +80,8 @@ class ReviewAnalyzer extends Component
     public function analyze()
     {
         LoggingService::log('=== LIVEWIRE ANALYZE METHOD STARTED ===');
+        LoggingService::log('Product URL value: ' . ($this->productUrl ?? 'NULL'));
+        LoggingService::log('Product URL length: ' . strlen($this->productUrl ?? ''));
 
         try {
             // Loading state and progress are already initialized by initializeProgress()
@@ -99,6 +101,15 @@ class ReviewAnalyzer extends Component
             $this->adjusted_rating = 0.00;
             $this->isAnalyzed = false;
 
+            // Ensure productUrl is not empty before validation
+            if (empty($this->productUrl)) {
+                LoggingService::log('Product URL is empty before validation, attempting to get from input');
+                // Try to get the value from the form if it exists
+                $this->productUrl = request()->input('productUrl', $this->productUrl);
+            }
+            
+            LoggingService::log('Final product URL before validation: ' . ($this->productUrl ?: 'EMPTY'));
+            
             // Validate input
             $this->validate([
                 'productUrl' => 'required|url',
@@ -272,7 +283,17 @@ class ReviewAnalyzer extends Component
         // Clear previous results
         $this->clearPreviousResults();
 
+        // Force sync of input values (in case wire:model.live has timing issues)
+        $this->dispatch('syncInputs');
+
         // Run the analysis (JavaScript will handle progress simulation)
         $this->analyze();
+    }
+
+    // Method to sync the URL from JavaScript if needed
+    public function setProductUrl($url)
+    {
+        $this->productUrl = $url;
+        LoggingService::log('Product URL set via JavaScript: ' . $url);
     }
 }

@@ -44,12 +44,8 @@ class AmazonFetchService
 
         // Check if fetching failed and provide specific error message
         if (empty($reviewsData) || !isset($reviewsData['reviews'])) {
-            // Check if the error was due to ASIN validation failure vs API issues
-            if (!$this->validateAsinExistsFast($asin)) {
-                throw new \Exception('Product does not exist on Amazon.com (US) site. Please check the URL and try again.');
-            } else {
-                throw new \Exception('Unable to fetch product reviews at this time. This could be due to network issues or the review service being temporarily unavailable. Please try again in a few moments.');
-            }
+            // Since we're not doing server-side validation, assume it's an API issue
+            throw new \Exception('Unable to fetch product reviews at this time. This could be due to an invalid product URL, network issues, or the review service being temporarily unavailable. Please verify the Amazon URL and try again.');
         }
 
         // Save to database - NO OpenAI analysis yet (will be done separately)
@@ -67,22 +63,17 @@ class AmazonFetchService
      */
     public function fetchReviewsOptimized(string $asin, string $country = 'us'): array
     {
-        // Skip validation for known working products to save 2 seconds
-        // Only validate if we haven't seen this ASIN recently
-        $shouldValidate = !$this->isRecentlyValidated($asin);
-        
-        if ($shouldValidate && !$this->validateAsinExistsFast($asin)) {
-            LoggingService::log('ASIN validation failed - product does not exist on amazon.com', [
-                'asin'        => $asin,
-                'url_checked' => "https://www.amazon.com/dp/{$asin}",
+        // Only do basic ASIN format validation - let client-side JS and Unwrangle API handle the rest
+        if (!$this->isValidAsinFormat($asin)) {
+            LoggingService::log('ASIN format validation failed', [
+                'asin' => $asin,
             ]);
-
             return [];
         }
-
-        if ($shouldValidate) {
-            $this->markAsValidated($asin);
-        }
+        
+        LoggingService::log('Server-side validation skipped - using client-side validation', [
+            'asin' => $asin,
+        ]);
 
         $apiKey = env('UNWRANGLE_API_KEY');
         $cookie = env('UNWRANGLE_AMAZON_COOKIE');
@@ -175,82 +166,16 @@ class AmazonFetchService
         return $this->fetchReviewsOptimized($asin, $country);
     }
 
-    /**
-     * Fast ASIN validation with shorter timeout
-     */
-    private function validateAsinExistsFast(string $asin): bool
-    {
-        $url = "https://www.amazon.com/dp/{$asin}";
 
-        try {
-            // First try HEAD request for speed
-            $response = $this->httpClient->request('HEAD', $url, [
-                'timeout' => 3, // Very short timeout for validation
-                'connect_timeout' => 1,
-                'allow_redirects' => false, // Don't follow redirects for speed
-            ]);
-
-            $statusCode = $response->getStatusCode();
-
-            // If HEAD request returns 405 (Method Not Allowed), try GET request
-            if ($statusCode === 405) {
-                LoggingService::log('HEAD request returned 405, trying GET request', [
-                    'asin' => $asin,
-                    'url'  => $url,
-                ]);
-
-                $response = $this->httpClient->request('GET', $url, [
-                    'timeout' => 5, // Slightly longer timeout for GET
-                    'connect_timeout' => 2,
-                    'allow_redirects' => false,
-                ]);
-
-                $statusCode = $response->getStatusCode();
-            }
-
-            LoggingService::log('ASIN validation check', [
-                'asin'        => $asin,
-                'url'         => $url,
-                'status_code' => $statusCode,
-            ]);
-
-            // Accept 200 (OK) and 3xx (redirect) as valid
-            return $statusCode >= 200 && $statusCode < 400;
-        } catch (\Exception $e) {
-            LoggingService::log('ASIN validation failed', [
-                'asin'  => $asin,
-                'error' => $e->getMessage(),
-            ]);
-
-            return false;
-        }
-    }
 
     /**
-     * Check if ASIN has been validated recently (in-memory cache)
+     * Validate ASIN format without hitting Amazon servers
      */
-    private function isRecentlyValidated(string $asin): bool
+    private function isValidAsinFormat(string $asin): bool
     {
-        static $validatedAsins = [];
-        static $lastClear = 0;
-
-        $now = time();
-        
-        // Clear cache every 5 minutes
-        if ($now - $lastClear > 300) {
-            $validatedAsins = [];
-            $lastClear = $now;
-        }
-
-        return isset($validatedAsins[$asin]) && ($now - $validatedAsins[$asin]) < 300;
+        // ASIN should be exactly 10 characters, alphanumeric
+        return preg_match('/^[A-Z0-9]{10}$/', $asin) === 1;
     }
 
-    /**
-     * Mark ASIN as validated (in-memory cache)
-     */
-    private function markAsValidated(string $asin): void
-    {
-        static $validatedAsins = [];
-        $validatedAsins[$asin] = time();
-    }
+
 }
