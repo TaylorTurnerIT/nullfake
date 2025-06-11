@@ -305,12 +305,14 @@ async function validateAmazonUrl() {
     
     // Handle Amazon short URLs (a.co) first
     if (url.includes('a.co/') || url.includes('amzn.to/')) {
-        showValidationStatus('🔗 Expanding Amazon short URL...', 'checking');
+        showValidationStatus('🔗 Amazon short URL detected - validating...', 'checking');
         if (analyzeButton) analyzeButton.disabled = true;
         
+        // Try to expand the URL client-side first
         try {
             const expandedUrl = await expandShortUrl(url);
             if (expandedUrl && expandedUrl !== url) {
+                console.log('Successfully expanded short URL:', expandedUrl);
                 // Update the input field with expanded URL
                 urlInput.value = expandedUrl;
                 // Sync with Livewire
@@ -322,11 +324,51 @@ async function validateAmazonUrl() {
                 return;
             }
         } catch (error) {
-            console.warn('Failed to expand short URL:', error);
+            console.warn('Client-side short URL expansion failed:', error);
         }
         
-        // If expansion failed, still allow submission
-        showValidationStatus('🔗 Short URL detected - will expand during analysis', 'warning');
+        // If client-side expansion failed, try to validate the short URL directly
+        // by attempting to extract any ASIN that might be in the short URL path
+        // Support multiple short URL patterns: /d/ASIN, /d/shortcode, /shortcode
+        let shortUrlAsin = null;
+        
+        // Try to extract ASIN from different patterns
+        const asinPatterns = [
+            /\/d\/([A-Z0-9]{10})/, // Direct ASIN in /d/ path
+            /\/([A-Z0-9]{10})$/,   // ASIN at end of URL
+        ];
+        
+        for (const pattern of asinPatterns) {
+            const match = url.match(pattern);
+            if (match) {
+                shortUrlAsin = match[1];
+                console.log('Found potential ASIN in short URL:', shortUrlAsin);
+                break;
+            }
+        }
+        
+        if (shortUrlAsin) {
+            try {
+                // Try to validate using the extracted ASIN
+                let validationResult = await tryMultipleValidationMethods(shortUrlAsin);
+                
+                if (validationResult.success) {
+                    showValidationStatus('✅ Short URL validated successfully', 'success');
+                    if (analyzeButton) analyzeButton.disabled = false;
+                } else {
+                    showValidationStatus('🔗 Short URL detected - will process server-side', 'info');
+                    if (analyzeButton) analyzeButton.disabled = false;
+                }
+                return;
+            } catch (error) {
+                console.warn('Short URL validation failed:', error);
+            }
+        } else {
+            console.log('No ASIN pattern found in short URL, will rely on server-side expansion');
+        }
+        
+        // If all else fails, still allow submission - server will handle expansion
+        showValidationStatus('🔗 Short URL detected - will process server-side', 'info');
         if (analyzeButton) analyzeButton.disabled = false;
         return;
     }
@@ -384,21 +426,23 @@ async function validateAmazonUrl() {
 
 async function tryMultipleValidationMethods(asin) {
     const methods = [
-        () => validateViaImageRequest(asin),    // Try image first (most reliable)
-        () => validateViaWebRequest(asin)       // Then try web request (better than fetch)
+        { name: 'Image Validation', fn: () => validateViaImageRequest(asin) },
+        { name: 'Web Validation', fn: () => validateViaWebRequest(asin) }
     ];
     
     let hasAnyResponse = false;
     
     for (const method of methods) {
         try {
-            const result = await method();
+            console.log(`🔍 Trying ${method.name} for ASIN: ${asin}`);
+            const result = await method.fn();
             hasAnyResponse = true;
             if (result.success) {
-                return result;
+                console.log(`✅ ${method.name} succeeded for ASIN: ${asin}`);
+                return { ...result, method: method.name };
             }
         } catch (error) {
-            console.log('Validation method failed:', error.message);
+            console.log(`❌ ${method.name} failed for ASIN ${asin}:`, error.message);
             // If we get any response (even an error), it means network is working
             if (error.message.includes('404') || error.message.includes('405')) {
                 hasAnyResponse = true;
@@ -408,39 +452,94 @@ async function tryMultipleValidationMethods(asin) {
     
     // If we had network responses but no success, product might not exist
     // If we had no responses at all, it's uncertain (network/CORS issues)
+    console.log(`🤷 All validation methods failed for ASIN: ${asin}, hasAnyResponse: ${hasAnyResponse}`);
     return { success: false, uncertain: !hasAnyResponse };
 }
 
 
 
 async function expandShortUrl(shortUrl) {
-    // Use a CORS proxy service to expand the URL
-    const proxyServices = [
-        `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`,
-        `https://cors-anywhere.herokuapp.com/${shortUrl}`
+    console.log('Attempting to expand short URL:', shortUrl);
+    
+    // Try multiple methods to expand the URL
+    const methods = [
+        () => expandViaFetch(shortUrl),
+        () => expandViaProxy(shortUrl)
     ];
     
-    for (const proxyUrl of proxyServices) {
+    for (const method of methods) {
         try {
-            const response = await fetch(proxyUrl, {
-                method: 'GET',
-                timeout: 5000,
-                redirect: 'follow'
-            });
-            
-            // Extract final URL from response
-            if (response.url && response.url !== proxyUrl) {
-                const finalUrl = response.url.replace(/^https?:\/\/[^\/]+\//, '');
-                if (finalUrl.includes('amazon.com')) {
-                    return 'https://' + finalUrl;
-                }
+            const expandedUrl = await method();
+            if (expandedUrl && expandedUrl !== shortUrl) {
+                console.log('Successfully expanded URL:', expandedUrl);
+                return expandedUrl;
             }
         } catch (error) {
-            console.log('Proxy service failed:', error.message);
+            console.log('URL expansion method failed:', error.message);
         }
     }
     
-    throw new Error('Could not expand short URL');
+    throw new Error('Could not expand short URL with any method');
+}
+
+async function expandViaFetch(shortUrl) {
+    // Try direct fetch with redirect following
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    try {
+        const response = await fetch(shortUrl, {
+            method: 'HEAD',
+            mode: 'cors',
+            redirect: 'follow',
+            signal: controller.signal,
+            credentials: 'omit',
+            referrerPolicy: 'no-referrer'
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Check if we got redirected to an Amazon URL
+        if (response.url && response.url.includes('amazon.com')) {
+            return response.url;
+        }
+        
+        throw new Error('No Amazon redirect found');
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
+
+async function expandViaProxy(shortUrl) {
+    // Use CORS proxy service as fallback
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
+    try {
+        const response = await fetch(proxyUrl, {
+            method: 'GET',
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+            const data = await response.json();
+            const finalUrl = data.status?.url || data.contents;
+            
+            if (finalUrl && finalUrl.includes('amazon.com')) {
+                return finalUrl;
+            }
+        }
+        
+        throw new Error('Proxy service did not return Amazon URL');
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
 }
 
 async function validateViaImageRequest(asin) {
@@ -474,18 +573,20 @@ async function validateViaImageRequest(asin) {
 async function validateViaWebRequest(asin) {
     // Try multiple approaches for web validation
     const approaches = [
-        // Approach 1: Try loading product page iframe (invisible)
-        () => validateViaIframe(asin),
-        // Approach 2: Try a different Amazon endpoint
-        () => validateViaAlternateEndpoint(asin)
+        { name: 'Iframe Loading', fn: () => validateViaIframe(asin) },
+        { name: 'Search Endpoint', fn: () => validateViaAlternateEndpoint(asin) }
     ];
     
     for (const approach of approaches) {
         try {
-            const result = await approach();
-            if (result.success) return result;
+            console.log(`  🌐 Trying ${approach.name} for ASIN: ${asin}`);
+            const result = await approach.fn();
+            if (result.success) {
+                console.log(`  ✅ ${approach.name} succeeded for ASIN: ${asin}`);
+                return result;
+            }
         } catch (error) {
-            console.log('Web validation approach failed:', error.message);
+            console.log(`  ❌ ${approach.name} failed for ASIN ${asin}:`, error.message);
         }
     }
     

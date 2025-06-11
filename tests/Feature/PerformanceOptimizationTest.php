@@ -127,28 +127,32 @@ class PerformanceOptimizationTest extends TestCase
         }
     }
 
-    public function test_fast_asin_validation()
+    public function test_asin_format_validation()
     {
-        $fetchService = app(AmazonFetchService::class);
+        // Simple test to verify ASIN format validation is fast
+        // without Amazon server-side validation, processing should be quick
         
-        // Use reflection to test the fast validation method
-        $reflection = new \ReflectionClass($fetchService);
-        $method = $reflection->getMethod('validateAsinExistsFast');
+        $reflection = new \ReflectionClass(AmazonFetchService::class);
+        $method = $reflection->getMethod('isValidAsinFormat');
         $method->setAccessible(true);
         
-        // Mock the HTTP client to return success quickly
-        Http::fake([
-            'https://www.amazon.com/dp/*' => Http::response('', 200),
-        ]);
+        $service = new AmazonFetchService();
         
         $startTime = microtime(true);
-        $result = $method->invoke($fetchService, 'B08TX7Q9JT');
-        $endTime = microtime(true);
         
+        // Test valid ASIN format
+        $validResult = $method->invoke($service, 'B08TX7Q9JT');
+        $this->assertTrue($validResult);
+        
+        // Test invalid ASIN format (not 10 characters)
+        $invalidResult = $method->invoke($service, 'INVALID');
+        $this->assertFalse($invalidResult);
+        
+        $endTime = microtime(true);
         $duration = ($endTime - $startTime);
         
-        $this->assertTrue($result);
-        $this->assertLessThan(5, $duration, 'Fast ASIN validation should complete in under 5 seconds');
+        // Format validation should be instant
+        $this->assertLessThan(0.1, $duration, 'ASIN format validation should be instant');
     }
 
     public function test_calculation_optimization()

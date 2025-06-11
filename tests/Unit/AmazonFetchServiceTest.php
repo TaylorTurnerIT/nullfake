@@ -45,10 +45,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_and_save_success()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API response
+        // Mock Unwrangle API response (no more Amazon validation)
         $unwrangleResponse = [
             'success'       => true,
             'total_results' => 2,
@@ -72,21 +69,22 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_and_save_product_not_exists()
     {
-        // Mock Amazon validation (product doesn't exist)
-        $this->mockHandler->append(new Response(404, [], 'Not found'));
+        // Mock Unwrangle API failure (product doesn't exist or API error)
+        $unwrangleResponse = [
+            'success' => false,
+            'error'   => 'Product not found',
+        ];
+        $this->mockHandler->append(new Response(200, [], json_encode($unwrangleResponse)));
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Product does not exist on Amazon.com (US) site');
+        $this->expectExceptionMessage('Unable to fetch product reviews at this time');
 
         $this->service->fetchReviewsAndSave('INVALID123', 'us', 'https://amazon.com/dp/INVALID123');
     }
 
     public function test_fetch_reviews_success()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API response
+        // Mock Unwrangle API response (no more Amazon validation)
         $unwrangleResponse = [
             'success'       => true,
             'total_results' => 3,
@@ -112,9 +110,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_asin_validation_fails()
     {
-        // Mock Amazon validation (product doesn't exist)
-        $this->mockHandler->append(new Response(404, [], 'Not found'));
-
+        // Test invalid ASIN format validation
         $result = $this->service->fetchReviews('INVALID123', 'us');
 
         $this->assertEmpty($result);
@@ -122,10 +118,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_unwrangle_api_error()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API error response
+        // Mock Unwrangle API error response (no more Amazon validation)
         $this->mockHandler->append(new Response(500, [], 'Internal Server Error'));
 
         $result = $this->service->fetchReviews('B08N5WRWNW', 'us');
@@ -135,10 +128,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_unwrangle_api_returns_error()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API response with error
+        // Mock Unwrangle API response with error (no more Amazon validation)
         $unwrangleResponse = [
             'success' => false,
             'error'   => 'API limit exceeded',
@@ -152,10 +142,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_unwrangle_api_exception()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API exception
+        // Mock Unwrangle API exception (no more Amazon validation)
         $this->mockHandler->append(new RequestException(
             'Connection timeout',
             new Request('GET', 'test')
@@ -166,75 +153,12 @@ class AmazonFetchServiceTest extends TestCase
         $this->assertEmpty($result);
     }
 
-    public function test_validate_asin_exists_success()
-    {
-        // Mock successful response
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Use reflection to call private method
-        $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExistsFast');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($this->service, 'B08N5WRWNW');
-
-        $this->assertTrue($result);
-    }
-
-    public function test_validate_asin_exists_not_found()
-    {
-        // Mock 404 response
-        $this->mockHandler->append(new Response(404, [], 'Not found'));
-
-        // Use reflection to call private method
-        $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExistsFast');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($this->service, 'INVALID123');
-
-        $this->assertFalse($result);
-    }
-
-    public function test_validate_asin_exists_redirect()
-    {
-        // Mock redirect response (should still be considered valid)
-        $this->mockHandler->append(new Response(302, ['Location' => 'https://amazon.co.uk/dp/B08N5WRWNW'], ''));
-
-        // Use reflection to call private method
-        $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExistsFast');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($this->service, 'B08N5WRWNW');
-
-        $this->assertTrue($result);
-    }
-
-    public function test_validate_asin_exists_exception()
-    {
-        // Mock exception
-        $this->mockHandler->append(new \GuzzleHttp\Exception\RequestException(
-            'Connection timeout',
-            new \GuzzleHttp\Psr7\Request('GET', 'test')
-        ));
-
-        // Use reflection to call private method
-        $reflection = new \ReflectionClass($this->service);
-        $method = $reflection->getMethod('validateAsinExistsFast');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($this->service, 'B08N5WRWNW');
-
-        $this->assertFalse($result);
-    }
+    // Note: validateAsinExistsFast method removed - validation now happens client-side
+    // These tests have been removed as we no longer do server-side Amazon validation
 
     public function test_fetch_reviews_with_empty_response()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API empty response
+        // Mock Unwrangle API empty response (no more Amazon validation)
         $this->mockHandler->append(new Response(200, [], ''));
 
         $result = $this->service->fetchReviews('B08N5WRWNW', 'us');
@@ -244,10 +168,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_with_invalid_json()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API invalid JSON response
+        // Mock Unwrangle API invalid JSON response (no more Amazon validation)
         $this->mockHandler->append(new Response(200, [], 'invalid json'));
 
         $result = $this->service->fetchReviews('B08N5WRWNW', 'us');
@@ -257,10 +178,7 @@ class AmazonFetchServiceTest extends TestCase
 
     public function test_fetch_reviews_uses_correct_api_parameters()
     {
-        // Mock Amazon validation (product exists)
-        $this->mockHandler->append(new Response(200, [], 'Amazon product page'));
-
-        // Mock Unwrangle API response
+        // Mock Unwrangle API response (no more Amazon validation)
         $unwrangleResponse = [
             'success'       => true,
             'total_results' => 1,
@@ -278,7 +196,7 @@ class AmazonFetchServiceTest extends TestCase
         $this->assertEquals('Test Product', $result['description']);
         $this->assertCount(1, $result['reviews']);
 
-        // Verify both mock responses were consumed
+        // Verify mock response was consumed
         $this->assertCount(0, $this->mockHandler);
     }
 
