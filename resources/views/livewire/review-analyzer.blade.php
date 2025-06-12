@@ -13,7 +13,7 @@
             <div id="url-validation-status" class="mt-2 text-sm" style="display: none;"></div>
         </div>
 
-        @if(!app()->environment('local'))
+        @if(!app()->environment(['local', 'testing']))
             <div id="captcha-container">
                 @if($captcha->getProvider() === 'recaptcha')
                     @if(!$captcha_passed)
@@ -25,7 +25,7 @@
                         <script>
                             let recaptchaWidgetId = null;
                             function onRecaptchaSuccess(token) {
-                                @this.set('g_recaptcha_response', token);
+                                window.Livewire.find('{{ $this->getId() }}').set('g_recaptcha_response', token);
                             }
 
                             function renderRecaptcha() {
@@ -65,7 +65,7 @@
                         @enderror
                         <script>
                             function onHcaptchaSuccess(token) {
-                                @this.set('h_captcha_response', token);
+                                window.Livewire.find('{{ $this->getId() }}').set('h_captcha_response', token);
                             }
                             function renderHcaptcha() {
                                 if (typeof hcaptcha !== 'undefined') {
@@ -223,7 +223,7 @@ function showAnalysisProgress() {
     if (!progressBar || !progressStatus) return;
     
     // Clear previous results immediately for better UX
-    @this.clearPreviousResults();
+    window.Livewire.find('{{ $this->getId() }}').call('clearPreviousResults');
     
     // Also hide the results section immediately via JavaScript
     const resultsSection = document.querySelector('[data-results-section]');
@@ -290,9 +290,11 @@ async function validateAmazonUrl() {
     if (!urlInput || !statusDiv) return;
     
     const url = urlInput.value.trim();
+    console.log('validateAmazonUrl called with URL:', url, 'lastValidatedUrl:', lastValidatedUrl);
     
     // Don't validate if URL is empty or same as last validated
     if (!url || url === lastValidatedUrl) {
+        console.log('Skipping validation - URL empty or already validated');
         statusDiv.style.display = 'none';
         if (analyzeButton) analyzeButton.disabled = false;
         return;
@@ -305,6 +307,7 @@ async function validateAmazonUrl() {
     
     // Handle Amazon short URLs (a.co) first
     if (url.includes('a.co/') || url.includes('amzn.to/')) {
+        console.log('Short URL detected, processing:', url);
         showValidationStatus('🔗 Amazon short URL detected - validating...', 'checking');
         if (analyzeButton) analyzeButton.disabled = true;
         
@@ -313,18 +316,34 @@ async function validateAmazonUrl() {
             const expandedUrl = await expandShortUrl(url);
             if (expandedUrl && expandedUrl !== url) {
                 console.log('Successfully expanded short URL:', expandedUrl);
+                
                 // Update the input field with expanded URL
                 urlInput.value = expandedUrl;
-                // Sync with Livewire
-                if (typeof window.Livewire !== 'undefined') {
-                    window.Livewire.emit('updateProductUrl', expandedUrl);
+                
+                // Try to sync with Livewire (but don't let this block validation)
+                try {
+                    if (typeof window.Livewire !== 'undefined' && window.Livewire.emit) {
+                        window.Livewire.emit('updateProductUrl', expandedUrl);
+                    } else if (typeof Livewire !== 'undefined' && Livewire.emit) {
+                        Livewire.emit('updateProductUrl', expandedUrl);
+                    }
+                } catch (e) {
+                    console.warn('Could not sync with Livewire (continuing anyway):', e);
                 }
-                // Continue validation with expanded URL
-                setTimeout(() => validateAmazonUrl(), 100);
+                
+                // Reset validation state to ensure the expanded URL gets validated
+                lastValidatedUrl = '';
+                console.log('About to validate expanded URL:', expandedUrl);
+                
+                // Continue validation with expanded URL immediately
+                setTimeout(() => {
+                    console.log('Recursive call to validateAmazonUrl with expanded URL');
+                    validateAmazonUrl();
+                }, 100);
                 return;
             }
         } catch (error) {
-            console.warn('Client-side short URL expansion failed:', error);
+            console.warn('Short URL expansion failed:', error);
         }
         
         // If client-side expansion failed, try to validate the short URL directly
@@ -374,6 +393,7 @@ async function validateAmazonUrl() {
     }
     
     // Extract ASIN from URL - support multiple Amazon URL formats
+    console.log('Processing regular Amazon URL for ASIN extraction:', url);
     let asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/);
     if (!asinMatch) {
         asinMatch = url.match(/\/gp\/product\/([A-Z0-9]{10})/);
@@ -400,18 +420,36 @@ async function validateAmazonUrl() {
     
     try {
         // Try multiple validation approaches
+        console.log('Starting validation methods for ASIN:', asin);
+        const validationStartTime = Date.now();
         let validationResult = await tryMultipleValidationMethods(asin);
+        const validationDuration = Date.now() - validationStartTime;
+        console.log('Validation result:', validationResult, 'Duration:', validationDuration + 'ms');
+        
+        // Ensure minimum display time for validation messages (especially for cached responses)
+        const minDisplayTime = 1500; // 1.5 seconds minimum
+        const remainingTime = Math.max(0, minDisplayTime - validationDuration);
         
         if (validationResult.success) {
-            showValidationStatus('✅ Product verified on Amazon', 'success');
-            if (analyzeButton) analyzeButton.disabled = false;
+            const message = validationResult.cached ? 
+                '✅ Product verified on Amazon (cached)' : 
+                '✅ Product verified on Amazon';
+            showValidationStatus(message, 'success');
+            // Add delay for cached responses that complete too quickly
+            setTimeout(() => {
+                if (analyzeButton) analyzeButton.disabled = false;
+            }, remainingTime);
         } else if (validationResult.uncertain) {
             showValidationStatus('⚠️ Unable to verify - will check during analysis', 'warning');
-            if (analyzeButton) analyzeButton.disabled = false;
+            setTimeout(() => {
+                if (analyzeButton) analyzeButton.disabled = false;
+            }, remainingTime);
         } else {
             // Even if validation fails, allow submission since server might still work
             showValidationStatus('⚠️ Could not verify product - will check during analysis', 'warning');
-            if (analyzeButton) analyzeButton.disabled = false;
+            setTimeout(() => {
+                if (analyzeButton) analyzeButton.disabled = false;
+            }, remainingTime);
         }
         
     } catch (error) {
@@ -438,7 +476,8 @@ async function tryMultipleValidationMethods(asin) {
             const result = await method.fn();
             hasAnyResponse = true;
             if (result.success) {
-                console.log(`✅ ${method.name} succeeded for ASIN: ${asin}`);
+                const cacheInfo = result.cached ? ' (cached response)' : '';
+                console.log(`✅ ${method.name} succeeded for ASIN: ${asin}${cacheInfo}`);
                 return { ...result, method: method.name };
             }
         } catch (error) {
@@ -502,6 +541,9 @@ async function validateViaImageRequest(asin) {
     // Try to load an Amazon product image - if it loads, product likely exists
     return new Promise((resolve, reject) => {
         const img = new Image();
+        const startTime = Date.now();
+        const minValidationTime = 500; // Minimum 500ms for better UX
+        
         const timeout = setTimeout(() => {
             img.onload = null;
             img.onerror = null;
@@ -510,12 +552,23 @@ async function validateViaImageRequest(asin) {
         
         img.onload = () => {
             clearTimeout(timeout);
-            resolve({ success: true });
+            const elapsed = Date.now() - startTime;
+            const remainingTime = Math.max(0, minValidationTime - elapsed);
+            
+            // Add minimum delay for cached responses
+            setTimeout(() => {
+                resolve({ success: true, cached: elapsed < 50 });
+            }, remainingTime);
         };
         
         img.onerror = () => {
             clearTimeout(timeout);
-            reject(new Error('Image not found'));
+            const elapsed = Date.now() - startTime;
+            const remainingTime = Math.max(0, minValidationTime - elapsed);
+            
+            setTimeout(() => {
+                reject(new Error('Image not found'));
+            }, remainingTime);
         };
         
         // Try standard Amazon image URL
@@ -668,7 +721,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const urlInput = document.getElementById('productUrl');
             if (urlInput && urlInput.value) {
                 // Manually sync the input value to Livewire
-                @this.setProductUrl(urlInput.value);
+                window.Livewire.find('{{ $this->getId() }}').call('setProductUrl', urlInput.value);
                 console.log('Synced URL to Livewire:', urlInput.value);
             }
         });

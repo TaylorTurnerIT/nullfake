@@ -6,6 +6,7 @@ use App\Services\CaptchaService;
 use App\Services\LoggingService;
 use App\Services\ReviewAnalysisService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 /**
@@ -116,7 +117,7 @@ class ReviewAnalyzer extends Component
             ]);
 
             // Captcha validation (if not local)
-            if (!app()->environment('local')) {
+            if (!app()->environment(['local', 'testing'])) {
                 // Skip captcha validation if already passed in this session
                 if (!$this->captcha_passed) {
                     $captchaService = app(CaptchaService::class);
@@ -167,7 +168,21 @@ class ReviewAnalyzer extends Component
             $this->isAnalyzed = true;
 
             LoggingService::log('=== LIVEWIRE ANALYZE METHOD COMPLETED SUCCESSFULLY ===');
+        } catch (ValidationException $e) {
+            // Preserve validation errors as-is since they're already user-friendly
+            LoggingService::log('Validation error in analyze method: ' . $e->getMessage());
+            // Get the first validation error message
+            $errors = $e->errors();
+            $this->error = !empty($errors) ? reset($errors)[0] : $e->getMessage();
+            $this->resetAnalysisState();
         } catch (\Exception $e) {
+            // Check if this is a CAPTCHA error and preserve the message
+            if (str_contains($e->getMessage(), 'Captcha') || str_contains($e->getMessage(), 'captcha')) {
+                LoggingService::log('CAPTCHA error in analyze method: ' . $e->getMessage());
+                $this->error = $e->getMessage();
+                $this->resetAnalysisState();
+                return;
+            }
             LoggingService::log('Exception in analyze method: '.$e->getMessage());
             $this->error = LoggingService::handleException($e);
             $this->resetAnalysisState();

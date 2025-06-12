@@ -199,7 +199,8 @@ class LoggingServiceTest extends TestCase
             $this->assertArrayHasKey('patterns', $type);
             $this->assertArrayHasKey('message', $type);
             $this->assertIsArray($type['patterns']);
-            $this->assertIsString($type['message']);
+            $this->assertTrue(is_string($type['message']) || is_null($type['message']), 
+                'Message should be string or null for validation/captcha errors');
         }
     }
 
