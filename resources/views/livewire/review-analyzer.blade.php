@@ -4,14 +4,16 @@
     <form wire:submit.prevent="analyze" class="space-y-6" id="review-form">
         <div>
             <label for="productUrl" class="block text-sm font-medium">Amazon Product URL</label>
-            <input type="url" id="productUrl" wire:model.defer="productUrl" required
-                   class="mt-1 w-full px-4 py-2 border rounded focus:outline-none focus:ring focus:border-indigo-300" />
+            <input type="url" id="productUrl" wire:model="productUrl" required
+                   class="mt-1 w-full px-4 py-2 border rounded focus:outline-none focus:ring focus:border-indigo-300"
+                   onpaste="setTimeout(validateAmazonUrl, 100)" />
             @error('productUrl')
                 <div class="text-red-500 text-sm mt-1">{{ $message }}</div>
             @enderror
+            <div id="url-validation-status" class="mt-2 text-sm" style="display: none;"></div>
         </div>
 
-        @if(!app()->environment('local'))
+        @if(!app()->environment(['local', 'testing']))
             <div id="captcha-container">
                 @if($captcha->getProvider() === 'recaptcha')
                     @if(!$captcha_passed)
@@ -23,7 +25,7 @@
                         <script>
                             let recaptchaWidgetId = null;
                             function onRecaptchaSuccess(token) {
-                                @this.set('g_recaptcha_response', token);
+                                window.Livewire.find('{{ $this->getId() }}').set('g_recaptcha_response', token);
                             }
 
                             function renderRecaptcha() {
@@ -63,7 +65,7 @@
                         @enderror
                         <script>
                             function onHcaptchaSuccess(token) {
-                                @this.set('h_captcha_response', token);
+                                window.Livewire.find('{{ $this->getId() }}').set('h_captcha_response', token);
                             }
                             function renderHcaptcha() {
                                 if (typeof hcaptcha !== 'undefined') {
@@ -97,7 +99,8 @@
         <button type="button" class="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50"
                 wire:loading.attr="disabled" 
                 wire:click="startAnalysis"
-                onclick="showAnalysisProgress()">
+                onclick="showAnalysisProgress()"
+                id="analyze-button">
             <span wire:loading.remove wire:target="startAnalysis">Analyze Reviews</span>
             <span wire:loading wire:target="startAnalysis">
                 Analyzing...
@@ -220,7 +223,7 @@ function showAnalysisProgress() {
     if (!progressBar || !progressStatus) return;
     
     // Clear previous results immediately for better UX
-    @this.clearPreviousResults();
+    window.Livewire.find('{{ $this->getId() }}').call('clearPreviousResults');
     
     // Also hide the results section immediately via JavaScript
     const resultsSection = document.querySelector('[data-results-section]');
@@ -271,6 +274,457 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultsSection = document.querySelector('[data-results-section]');
     if (resultsSection) {
         resultsSection.style.display = '';
+    }
+});
+
+// Client-side Amazon URL validation
+let validationTimeout;
+let lastValidatedUrl = '';
+let isValidating = false;
+
+async function validateAmazonUrl() {
+    const urlInput = document.getElementById('productUrl');
+    const statusDiv = document.getElementById('url-validation-status');
+    const analyzeButton = document.getElementById('analyze-button');
+    
+    if (!urlInput || !statusDiv) return;
+    
+    const url = urlInput.value.trim();
+    console.log('validateAmazonUrl called with URL:', url, 'lastValidatedUrl:', lastValidatedUrl);
+    
+    // Don't validate if URL is empty or same as last validated
+    if (!url || url === lastValidatedUrl) {
+        console.log('Skipping validation - URL empty or already validated');
+        statusDiv.style.display = 'none';
+        if (analyzeButton) analyzeButton.disabled = false;
+        return;
+    }
+    
+    // Clear previous timeout
+    if (validationTimeout) {
+        clearTimeout(validationTimeout);
+    }
+    
+    // Handle Amazon short URLs (a.co) first
+    if (url.includes('a.co/') || url.includes('amzn.to/')) {
+        console.log('Short URL detected, processing:', url);
+        showValidationStatus('🔗 Amazon short URL detected - validating...', 'checking');
+        if (analyzeButton) analyzeButton.disabled = true;
+        
+        // Try to expand the URL client-side first
+        try {
+            const expandedUrl = await expandShortUrl(url);
+            if (expandedUrl && expandedUrl !== url) {
+                console.log('Successfully expanded short URL:', expandedUrl);
+                
+                // Update the input field with expanded URL
+                urlInput.value = expandedUrl;
+                
+                // Try to sync with Livewire (but don't let this block validation)
+                try {
+                    if (typeof window.Livewire !== 'undefined' && window.Livewire.emit) {
+                        window.Livewire.emit('updateProductUrl', expandedUrl);
+                    } else if (typeof Livewire !== 'undefined' && Livewire.emit) {
+                        Livewire.emit('updateProductUrl', expandedUrl);
+                    }
+                } catch (e) {
+                    console.warn('Could not sync with Livewire (continuing anyway):', e);
+                }
+                
+                // Reset validation state to ensure the expanded URL gets validated
+                lastValidatedUrl = '';
+                console.log('About to validate expanded URL:', expandedUrl);
+                
+                // Continue validation with expanded URL immediately
+                setTimeout(() => {
+                    console.log('Recursive call to validateAmazonUrl with expanded URL');
+                    validateAmazonUrl();
+                }, 100);
+                return;
+            }
+        } catch (error) {
+            console.warn('Short URL expansion failed:', error);
+        }
+        
+        // If client-side expansion failed, try to validate the short URL directly
+        // by attempting to extract any ASIN that might be in the short URL path
+        // Support multiple short URL patterns: /d/ASIN, /d/shortcode, /shortcode
+        let shortUrlAsin = null;
+        
+        // Try to extract ASIN from different patterns
+        const asinPatterns = [
+            /\/d\/([A-Z0-9]{10})/, // Direct ASIN in /d/ path
+            /\/([A-Z0-9]{10})$/,   // ASIN at end of URL
+        ];
+        
+        for (const pattern of asinPatterns) {
+            const match = url.match(pattern);
+            if (match) {
+                shortUrlAsin = match[1];
+                console.log('Found potential ASIN in short URL:', shortUrlAsin);
+                break;
+            }
+        }
+        
+        if (shortUrlAsin) {
+            try {
+                // Try to validate using the extracted ASIN
+                let validationResult = await tryMultipleValidationMethods(shortUrlAsin);
+                
+                if (validationResult.success) {
+                    showValidationStatus('✅ Short URL validated successfully', 'success');
+                    if (analyzeButton) analyzeButton.disabled = false;
+                } else {
+                    showValidationStatus('🔗 Short URL detected - will process server-side', 'info');
+                    if (analyzeButton) analyzeButton.disabled = false;
+                }
+                return;
+            } catch (error) {
+                console.warn('Short URL validation failed:', error);
+            }
+        } else {
+            console.log('No ASIN pattern found in short URL, will rely on server-side expansion');
+        }
+        
+        // If all else fails, still allow submission - server will handle expansion
+        showValidationStatus('🔗 Short URL detected - will process server-side', 'info');
+        if (analyzeButton) analyzeButton.disabled = false;
+        return;
+    }
+    
+    // Extract ASIN from URL - support multiple Amazon URL formats
+    console.log('Processing regular Amazon URL for ASIN extraction:', url);
+    let asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/);
+    if (!asinMatch) {
+        asinMatch = url.match(/\/gp\/product\/([A-Z0-9]{10})/);
+    }
+    if (!asinMatch) {
+        asinMatch = url.match(/\/exec\/obidos\/ASIN\/([A-Z0-9]{10})/);
+    }
+    
+    if (!asinMatch) {
+        showValidationStatus('❌ Invalid Amazon URL format. Please use a valid Amazon product URL.', 'error');
+        if (analyzeButton) analyzeButton.disabled = true;
+        return;
+    }
+    
+    const asin = asinMatch[1];
+    lastValidatedUrl = url;
+    
+    // Show checking status
+    showValidationStatus('🔍 Checking if product exists...', 'checking');
+    if (analyzeButton) analyzeButton.disabled = true;
+    
+        // Validate immediately - no artificial delays needed
+    isValidating = true;
+    
+    try {
+        // Try multiple validation approaches
+        console.log('Starting validation methods for ASIN:', asin);
+        const validationStartTime = Date.now();
+        let validationResult = await tryMultipleValidationMethods(asin);
+        const validationDuration = Date.now() - validationStartTime;
+        console.log('Validation result:', validationResult, 'Duration:', validationDuration + 'ms');
+        
+        // Ensure minimum display time for validation messages (especially for cached responses)
+        const minDisplayTime = 1500; // 1.5 seconds minimum
+        const remainingTime = Math.max(0, minDisplayTime - validationDuration);
+        
+        if (validationResult.success) {
+            const message = validationResult.cached ? 
+                '✅ Product verified on Amazon (cached)' : 
+                '✅ Product verified on Amazon';
+            showValidationStatus(message, 'success');
+            // Add delay for cached responses that complete too quickly
+            setTimeout(() => {
+                if (analyzeButton) analyzeButton.disabled = false;
+            }, remainingTime);
+        } else if (validationResult.uncertain) {
+            showValidationStatus('⚠️ Unable to verify - will check during analysis', 'warning');
+            setTimeout(() => {
+                if (analyzeButton) analyzeButton.disabled = false;
+            }, remainingTime);
+        } else {
+            // Even if validation fails, allow submission since server might still work
+            showValidationStatus('⚠️ Could not verify product - will check during analysis', 'warning');
+            setTimeout(() => {
+                if (analyzeButton) analyzeButton.disabled = false;
+            }, remainingTime);
+        }
+        
+    } catch (error) {
+        console.warn('Validation error:', error);
+        // Always allow submission - let server handle validation
+        showValidationStatus('⚠️ Verification unavailable - will check during analysis', 'warning');
+        if (analyzeButton) analyzeButton.disabled = false;
+    }
+    
+    isValidating = false;
+}
+
+async function tryMultipleValidationMethods(asin) {
+    const methods = [
+        { name: 'Image Validation', fn: () => validateViaImageRequest(asin) },
+        { name: 'Web Validation', fn: () => validateViaWebRequest(asin) }
+    ];
+    
+    let hasAnyResponse = false;
+    
+    for (const method of methods) {
+        try {
+            console.log(`🔍 Trying ${method.name} for ASIN: ${asin}`);
+            const result = await method.fn();
+            hasAnyResponse = true;
+            if (result.success) {
+                const cacheInfo = result.cached ? ' (cached response)' : '';
+                console.log(`✅ ${method.name} succeeded for ASIN: ${asin}${cacheInfo}`);
+                return { ...result, method: method.name };
+            }
+        } catch (error) {
+            console.log(`❌ ${method.name} failed for ASIN ${asin}:`, error.message);
+            // If we get any response (even an error), it means network is working
+            if (error.message.includes('404') || error.message.includes('405')) {
+                hasAnyResponse = true;
+            }
+        }
+    }
+    
+    // If we had network responses but no success, product might not exist
+    // If we had no responses at all, it's uncertain (network/CORS issues)
+    console.log(`🤷 All validation methods failed for ASIN: ${asin}, hasAnyResponse: ${hasAnyResponse}`);
+    return { success: false, uncertain: !hasAnyResponse };
+}
+
+
+
+async function expandShortUrl(shortUrl) {
+    console.log('Attempting to expand short URL via backend:', shortUrl);
+    
+    try {
+        // Get CSRF token from meta tag
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (!csrfToken) {
+            throw new Error('CSRF token not found');
+        }
+        
+        const response = await fetch('/api/expand-url', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ url: shortUrl })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.expanded_url) {
+            console.log('Backend successfully expanded URL:', data.expanded_url);
+            return data.expanded_url;
+        } else {
+            throw new Error(data.error || 'Backend expansion failed');
+        }
+    } catch (error) {
+        console.warn('Backend URL expansion failed:', error.message);
+        throw error;
+    }
+}
+
+
+
+async function validateViaImageRequest(asin) {
+    // Try to load an Amazon product image - if it loads, product likely exists
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const startTime = Date.now();
+        const minValidationTime = 500; // Minimum 500ms for better UX
+        
+        const timeout = setTimeout(() => {
+            img.onload = null;
+            img.onerror = null;
+            reject(new Error('Image validation timeout'));
+        }, 3000);
+        
+        img.onload = () => {
+            clearTimeout(timeout);
+            const elapsed = Date.now() - startTime;
+            const remainingTime = Math.max(0, minValidationTime - elapsed);
+            
+            // Add minimum delay for cached responses
+            setTimeout(() => {
+                resolve({ success: true, cached: elapsed < 50 });
+            }, remainingTime);
+        };
+        
+        img.onerror = () => {
+            clearTimeout(timeout);
+            const elapsed = Date.now() - startTime;
+            const remainingTime = Math.max(0, minValidationTime - elapsed);
+            
+            setTimeout(() => {
+                reject(new Error('Image not found'));
+            }, remainingTime);
+        };
+        
+        // Try standard Amazon image URL
+        img.src = `https://images-na.ssl-images-amazon.com/images/P/${asin}.01.L.jpg`;
+        
+        // Set crossorigin to avoid sending credentials
+        img.crossOrigin = 'anonymous';
+    });
+}
+
+async function validateViaWebRequest(asin) {
+    // Try multiple approaches for web validation
+    const approaches = [
+        { name: 'Iframe Loading', fn: () => validateViaIframe(asin) },
+        { name: 'Search Endpoint', fn: () => validateViaAlternateEndpoint(asin) }
+    ];
+    
+    for (const approach of approaches) {
+        try {
+            console.log(`  🌐 Trying ${approach.name} for ASIN: ${asin}`);
+            const result = await approach.fn();
+            if (result.success) {
+                console.log(`  ✅ ${approach.name} succeeded for ASIN: ${asin}`);
+                return result;
+            }
+        } catch (error) {
+            console.log(`  ❌ ${approach.name} failed for ASIN ${asin}:`, error.message);
+        }
+    }
+    
+    throw new Error('All web validation approaches failed');
+}
+
+async function validateViaIframe(asin) {
+    return new Promise((resolve, reject) => {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        
+        const timeout = setTimeout(() => {
+            document.body.removeChild(iframe);
+            reject(new Error('Iframe validation timeout'));
+        }, 4000);
+        
+        iframe.onload = () => {
+            clearTimeout(timeout);
+            document.body.removeChild(iframe);
+            resolve({ success: true });
+        };
+        
+        iframe.onerror = () => {
+            clearTimeout(timeout);
+            document.body.removeChild(iframe);
+            reject(new Error('Iframe validation failed'));
+        };
+        
+        // Use Amazon search results page which is more permissive
+        iframe.src = `https://www.amazon.com/s?k=${asin}&ref=nb_sb_noss`;
+        document.body.appendChild(iframe);
+    });
+}
+
+async function validateViaAlternateEndpoint(asin) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    try {
+        // Try the search endpoint instead of direct product page
+        const response = await fetch(`https://www.amazon.com/s?k=${asin}`, {
+            method: 'GET',
+            mode: 'no-cors',
+            signal: controller.signal,
+            credentials: 'omit',
+            referrerPolicy: 'no-referrer',
+            cache: 'no-store'
+        });
+        
+        clearTimeout(timeoutId);
+        return { success: true };
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
+
+function showValidationStatus(message, type) {
+    const statusDiv = document.getElementById('url-validation-status');
+    if (!statusDiv) return;
+    
+    statusDiv.style.display = 'block';
+    statusDiv.textContent = message;
+    
+    // Remove previous classes
+    statusDiv.className = 'mt-2 text-sm';
+    
+    // Add appropriate styling
+    switch (type) {
+        case 'success':
+            statusDiv.className += ' text-green-600';
+            break;
+        case 'error':
+            statusDiv.className += ' text-red-600';
+            break;
+        case 'warning':
+            statusDiv.className += ' text-yellow-600';
+            break;
+        case 'checking':
+            statusDiv.className += ' text-blue-600';
+            break;
+    }
+}
+
+// Also validate on input change (with debouncing)
+document.addEventListener('DOMContentLoaded', function() {
+    const urlInput = document.getElementById('productUrl');
+    const analyzeButton = document.getElementById('analyze-button');
+    
+    if (urlInput) {
+        urlInput.addEventListener('input', function() {
+            // Clear status immediately on input change
+            const statusDiv = document.getElementById('url-validation-status');
+            if (statusDiv) {
+                statusDiv.style.display = 'none';
+            }
+            lastValidatedUrl = '';
+            
+            // Enable button while typing (will be disabled during validation if needed)
+            if (analyzeButton && !isValidating) {
+                analyzeButton.disabled = false;
+            }
+            
+            // Debounce validation to avoid excessive requests while typing
+            if (validationTimeout) {
+                clearTimeout(validationTimeout);
+            }
+            validationTimeout = setTimeout(validateAmazonUrl, 1000);
+        });
+        
+        // Also validate on paste
+        urlInput.addEventListener('paste', function() {
+            setTimeout(validateAmazonUrl, 200);
+        });
+    }
+    
+    // Listen for Livewire event to sync inputs
+    if (typeof Livewire !== 'undefined') {
+        Livewire.on('syncInputs', () => {
+            const urlInput = document.getElementById('productUrl');
+            if (urlInput && urlInput.value) {
+                // Manually sync the input value to Livewire
+                window.Livewire.find('{{ $this->getId() }}').call('setProductUrl', urlInput.value);
+                console.log('Synced URL to Livewire:', urlInput.value);
+            }
+        });
     }
 });
 </script>

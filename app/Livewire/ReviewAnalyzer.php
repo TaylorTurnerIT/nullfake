@@ -6,6 +6,7 @@ use App\Services\CaptchaService;
 use App\Services\LoggingService;
 use App\Services\ReviewAnalysisService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 
 /**
@@ -80,6 +81,8 @@ class ReviewAnalyzer extends Component
     public function analyze()
     {
         LoggingService::log('=== LIVEWIRE ANALYZE METHOD STARTED ===');
+        LoggingService::log('Product URL value: ' . ($this->productUrl ?? 'NULL'));
+        LoggingService::log('Product URL length: ' . strlen($this->productUrl ?? ''));
 
         try {
             // Loading state and progress are already initialized by initializeProgress()
@@ -99,13 +102,22 @@ class ReviewAnalyzer extends Component
             $this->adjusted_rating = 0.00;
             $this->isAnalyzed = false;
 
+            // Ensure productUrl is not empty before validation
+            if (empty($this->productUrl)) {
+                LoggingService::log('Product URL is empty before validation, attempting to get from input');
+                // Try to get the value from the form if it exists
+                $this->productUrl = request()->input('productUrl', $this->productUrl);
+            }
+            
+            LoggingService::log('Final product URL before validation: ' . ($this->productUrl ?: 'EMPTY'));
+            
             // Validate input
             $this->validate([
                 'productUrl' => 'required|url',
             ]);
 
             // Captcha validation (if not local)
-            if (!app()->environment('local')) {
+            if (!app()->environment(['local', 'testing'])) {
                 // Skip captcha validation if already passed in this session
                 if (!$this->captcha_passed) {
                     $captchaService = app(CaptchaService::class);
@@ -156,7 +168,21 @@ class ReviewAnalyzer extends Component
             $this->isAnalyzed = true;
 
             LoggingService::log('=== LIVEWIRE ANALYZE METHOD COMPLETED SUCCESSFULLY ===');
+        } catch (ValidationException $e) {
+            // Preserve validation errors as-is since they're already user-friendly
+            LoggingService::log('Validation error in analyze method: ' . $e->getMessage());
+            // Get the first validation error message
+            $errors = $e->errors();
+            $this->error = !empty($errors) ? reset($errors)[0] : $e->getMessage();
+            $this->resetAnalysisState();
         } catch (\Exception $e) {
+            // Check if this is a CAPTCHA error and preserve the message
+            if (str_contains($e->getMessage(), 'Captcha') || str_contains($e->getMessage(), 'captcha')) {
+                LoggingService::log('CAPTCHA error in analyze method: ' . $e->getMessage());
+                $this->error = $e->getMessage();
+                $this->resetAnalysisState();
+                return;
+            }
             LoggingService::log('Exception in analyze method: '.$e->getMessage());
             $this->error = LoggingService::handleException($e);
             $this->resetAnalysisState();
@@ -272,7 +298,17 @@ class ReviewAnalyzer extends Component
         // Clear previous results
         $this->clearPreviousResults();
 
+        // Force sync of input values (in case wire:model.live has timing issues)
+        $this->dispatch('syncInputs');
+
         // Run the analysis (JavaScript will handle progress simulation)
         $this->analyze();
+    }
+
+    // Method to sync the URL from JavaScript if needed
+    public function setProductUrl($url)
+    {
+        $this->productUrl = $url;
+        LoggingService::log('Product URL set via JavaScript: ' . $url);
     }
 }

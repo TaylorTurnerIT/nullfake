@@ -41,6 +41,14 @@ class LoggingService
             'patterns' => ['Failed to follow redirect', 'Redirect does not lead to Amazon domain'],
             'message'  => 'Unable to resolve the shortened URL. Please try using the full Amazon product URL instead.',
         ],
+        'VALIDATION_ERROR' => [
+            'patterns' => ['The product url field is required', 'The product url field must be a valid URL', 'validation.required', 'validation.url'],
+            'message'  => null, // Will use original message for validation errors
+        ],
+        'CAPTCHA_ERROR' => [
+            'patterns' => ['Captcha verification failed', 'captcha verification failed', 'CAPTCHA', 'captcha'],
+            'message'  => null, // Will use original message for captcha errors
+        ],
     ];
 
     /**
@@ -63,7 +71,8 @@ class LoggingService
         foreach (self::ERROR_TYPES as $type) {
             foreach ($type['patterns'] as $pattern) {
                 if (str_contains($errorMessage, $pattern)) {
-                    return $type['message'];
+                    // For validation errors, return the original message
+                    return $type['message'] ?? $errorMessage;
                 }
             }
         }

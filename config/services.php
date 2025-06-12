@@ -45,4 +45,7 @@ return [
         'chunk_size' => env('OPENAI_CHUNK_SIZE', 25),
     ],
 
+    // Amazon validation is now handled client-side only
+    // Server skips validation to avoid IP throttling
+
 ];
