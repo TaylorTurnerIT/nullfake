@@ -3,6 +3,7 @@
 A Laravel application that analyzes Amazon product reviews to detect fake reviews using AI. The service fetches reviews via the Unwrangle API, analyzes them with OpenAI, and provides authenticity scores.
 
 # Visit [nullfake.com](https://nullfake.com) to try it out.
+# Read our [blog post about how nullfake works](https://shift8web.ca/from-fakespot-to-null-fake-navigating-the-evolving-landscape-of-fake-reviews/)
 
 ## How It Works
 
@@ -54,3 +55,8 @@ The model calculates:
 ## License
 
 MIT
+
+## Shift8
+
+This was developed in Toronto Canada by [Shift8 Web](https://shift8web.ca)
+
