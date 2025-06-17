@@ -92,7 +92,7 @@
 
   <header class="bg-white shadow p-4">
     <div class="max-w-4xl mx-auto flex items-center justify-between">
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center pr-4 md:pr-0 space-x-3">
         <img src="/img/nullfake.png" alt="Null Fake Logo" class="h-12 w-auto object-contain" />
       </div>
       <p class="text-sm text-gray-500">Analyze Amazon reviews for authenticity</p>
