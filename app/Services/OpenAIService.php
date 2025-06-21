@@ -67,7 +67,7 @@ class OpenAIService
                 'messages' => [
                     [
                         'role'    => 'system',
-                        'content' => 'You are a fast review authenticity detector. Analyze each review and return ONLY a JSON array with {"id":"X","score":Y} objects. Score 0-100 where 0=genuine, 100=fake.',
+                        'content' => 'You are an expert Amazon review authenticity detector. Be SUSPICIOUS and thorough - most products have 15-40% fake reviews. Score 0-100 where 0=definitely genuine, 100=definitely fake. Use the full range: 20-40 for suspicious, 50-70 for likely fake, 80+ for obvious fakes. Return ONLY JSON: [{"id":"X","score":Y}]',
                     ],
                     [
                         'role'    => 'user',
@@ -85,12 +85,17 @@ class OpenAIService
 
                 return $this->parseOpenAIResponse($result, $reviews);
             } else {
+                $statusCode = $response->status();
+                $responseBody = $response->body();
+                
                 Log::error('OpenAI API error', [
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
+                    'status' => $statusCode,
+                    'body'   => $responseBody,
                 ]);
 
-                throw new \Exception('OpenAI API request failed: '.$response->status());
+                // Handle specific error types with user-friendly messages
+                $errorMessage = $this->getErrorMessage($statusCode, $responseBody);
+                throw new \Exception($errorMessage);
             }
         } catch (\Exception $e) {
             LoggingService::log('OpenAI service error', ['error' => $e->getMessage()]);
@@ -98,6 +103,13 @@ class OpenAIService
             // Check if it's a timeout with 0 bytes - this suggests connection issues
             if (str_contains($e->getMessage(), 'cURL error 28') && str_contains($e->getMessage(), '0 bytes received')) {
                 throw new \Exception('Unable to connect to OpenAI service. Please check your internet connection and try again.');
+            }
+
+            // Don't re-wrap already formatted error messages
+            if (str_contains($e->getMessage(), 'quota') || 
+                str_contains($e->getMessage(), 'rate limit') || 
+                str_contains($e->getMessage(), 'temporarily unavailable')) {
+                throw $e;
             }
 
             throw new \Exception('Failed to analyze reviews: '.$e->getMessage());
@@ -135,7 +147,7 @@ class OpenAIService
                     'messages' => [
                         [
                             'role'    => 'system',
-                            'content' => 'You are a fast review authenticity detector. Analyze each review and return ONLY a JSON array with {"id":"X","score":Y} objects. Score 0-100 where 0=genuine, 100=fake.',
+                            'content' => 'You are an expert Amazon review authenticity detector. Be SUSPICIOUS and thorough - most products have 15-40% fake reviews. Score 0-100 where 0=definitely genuine, 100=definitely fake. Use the full range: 20-40 for suspicious, 50-70 for likely fake, 80+ for obvious fakes. Return ONLY JSON: [{"id":"X","score":Y}]',
                         ],
                         [
                             'role'    => 'user',
@@ -207,9 +219,12 @@ class OpenAIService
      */
     private function buildOptimizedPrompt($reviews): string
     {
-        $prompt = "Score each review 0-100 (0=real, 100=fake). Return JSON: [{\"id\":\"X\",\"score\":Y}]\n\n";
-        $prompt .= "FAKE SIGNS: Generic text, excessive praise, no specifics, promotional tone, short 5-stars\n";
-        $prompt .= "REAL SIGNS: Specific details, balanced feedback, personal context, complaints\n\n";
+        $prompt = "Score each review 0-100 (0=genuine, 100=fake). Be thorough and suspicious. Return JSON: [{\"id\":\"X\",\"score\":Y}]\n\n";
+        $prompt .= "HIGH FAKE RISK (70-100): Generic praise, no specifics, promotional language, perfect 5-stars with short text, non-verified purchases, obvious AI writing, repetitive phrases across reviews\n";
+        $prompt .= "MEDIUM FAKE RISK (40-69): Overly positive without balance, lacks personal context, generic complaints, suspicious timing patterns, limited product knowledge\n";
+        $prompt .= "LOW FAKE RISK (20-39): Some specifics but feels coached, minor inconsistencies, unusual language patterns for demographic\n";
+        $prompt .= "GENUINE (0-19): Specific details, balanced pros/cons, personal context, natural language, verified purchase, realistic complaints, product knowledge\n\n";
+        $prompt .= "Key: V=Verified, U=Unverified, Vine=Amazon Vine reviewer\n\n";
 
         foreach ($reviews as $review) {
             $verified = isset($review['meta_data']['verified_purchase']) && $review['meta_data']['verified_purchase'] ? 'V' : 'U';
@@ -384,5 +399,40 @@ class OpenAIService
         ];
 
         return $modelLimits[$model] ?? 4096; // Default to 4096 if model not found
+    }
+
+    /**
+     * Get user-friendly error message based on API response
+     */
+    private function getErrorMessage(int $statusCode, string $responseBody): string
+    {
+        // Try to parse error details from response
+        $errorDetails = json_decode($responseBody, true);
+        $errorMessage = $errorDetails['error']['message'] ?? '';
+
+        switch ($statusCode) {
+            case 429:
+                if (str_contains($errorMessage, 'quota')) {
+                    return 'OpenAI quota exceeded. Please check your billing and usage limits at https://platform.openai.com/usage';
+                }
+                return 'OpenAI rate limit exceeded. Please try again in a few moments.';
+                
+            case 401:
+                return 'OpenAI authentication failed. Please check your API key configuration.';
+                
+            case 400:
+                return 'Invalid request to OpenAI API. Please contact support if this persists.';
+                
+            case 503:
+                return 'OpenAI service is temporarily unavailable. Please try again later.';
+                
+            case 500:
+            case 502:
+            case 504:
+                return 'OpenAI service error. Please try again in a few moments.';
+                
+            default:
+                return "OpenAI API error (HTTP {$statusCode}). Please try again or contact support if this persists.";
+        }
     }
 }
